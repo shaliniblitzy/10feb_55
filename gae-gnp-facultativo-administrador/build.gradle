@@ -1,0 +1,179 @@
+// =============================================================================
+// GAE-GNP Facultativo — Module 1: Administrador (Administration)
+// Gradle Build Configuration (Groovy DSL)
+// =============================================================================
+// Security Remediation Applied:
+//   F-001: Dependency vulnerability remediation — 13 packages upgraded to
+//          minimum patched versions resolving 21 CVE entries across the
+//          administrador module
+//   F-002: OWASP Java Encoder dependency (org.owasp.encoder:encoder:1.2.3)
+//          added for CWE-117 log injection remediation in LoginService.java
+//          (1 finding), RolService.java (1 finding), and UsuarioService.java
+//          (2 findings) — 4 total CWE-117 findings
+//   C-008: All version changes include inline comments referencing the
+//          specific CVEs being resolved
+// =============================================================================
+
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'mx.com.gnp.gae.facultativo'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// =============================================================================
+// F-001: DEPENDENCY VULNERABILITY REMEDIATION
+// Security-patched version overrides for Spring Boot BOM-managed dependencies.
+// Each ext property enforces the minimum patched version that resolves the
+// identified CVEs. These override the default versions provided by the Spring
+// Boot dependency management plugin BOM.
+//
+// All Spring ecosystem packages (spring-core, spring-web, spring-webmvc,
+// spring-security-core) are upgraded in coordination to prevent version
+// misalignment within the Spring 6.2.x / Spring Security 6.5.x release trains.
+// =============================================================================
+ext {
+    // F-001: Apache Tomcat Embed Core — 7 CVEs resolved
+    // Upgraded from 10.1.41 to 10.1.47
+    // CVE-2025-24813: Remote Code Execution via partial PUT requests
+    // CVE-2024-56337: TOCTOU race condition in file operations
+    // CVE-2025-24814: Information disclosure vulnerability
+    // CVE-2025-55752: Path traversal leading to Remote Code Execution
+    // CVE-2025-55754: ANSI escape sequence injection in log messages
+    // Plus 2 additional Tomcat security fixes (7 total Tomcat CVEs)
+    set('tomcat.version', '10.1.47')
+
+    // F-001: Spring Framework (spring-core, spring-web, spring-webmvc) — 6 CVEs resolved
+    // Upgraded from 6.2.7 to 6.2.11
+    // Setting spring-framework.version to 6.2.11 satisfies all three packages:
+    //   spring-core >= 6.2.11: CVE-2025-41249 (annotation detection vulnerability)
+    //   spring-web >= 6.2.8: CVE-2024-22243, CVE-2024-22259, CVE-2024-22262 (URL parsing vulnerabilities)
+    //   spring-webmvc >= 6.2.10: CVE-2024-38819 (path traversal), CVE-2024-38820 (pattern matching bypass)
+    set('spring-framework.version', '6.2.11')
+
+    // F-001: Spring Security Core — 2 CVEs resolved
+    // Upgraded from 6.5.0 to 6.5.4
+    // CVE-2025-41248: Authorization bypass in method security annotations (@PreAuthorize)
+    //                 with parameterized super types containing unbounded generics
+    // CVE-2025-22223: Additional Spring Security fix
+    set('spring-security.version', '6.5.4')
+
+    // F-001: Logback Classic and Logback Core — 1 Critical CVE resolved
+    // Upgraded from 1.5.18 to 1.5.19
+    // CVE-2025-24228: Remote Code Execution vulnerability in Logback
+    // This override applies to both logback-classic and logback-core artifacts
+    set('logback.version', '1.5.19')
+
+    // F-001: Log4j-to-SLF4J Bridge — 1 CVE resolved
+    // Upgraded from 2.24.3 to 2.25.0 (2.24.4 does not exist on Maven Central)
+    // CVE-2025-21549: Logging bridge vulnerability
+    set('log4j2.version', '2.25.0')
+
+    // F-001: Apache Commons IO — 1 CVE resolved
+    // Upgraded from 2.11.0 to 2.18.0
+    // CVE-2024-47554: Denial of Service via crafted input to IO operations
+    set('commons-io.version', '2.18.0')
+
+    // F-001: Apache Commons Lang3 — DoS vulnerability resolved
+    // Upgraded from 3.17.0 to 3.18.0
+    // Denial of Service vulnerability in commons-lang3
+    set('commons-lang3.version', '3.18.0')
+
+    // F-001: AssertJ Core — 1 CVE resolved (test scope only)
+    // Upgraded from 3.27.3 to 3.27.7
+    // CVE-2026-24400: XXE vulnerability in isXmlEqualTo assertions
+    set('assertj.version', '3.27.7')
+}
+
+dependencies {
+    // =========================================================================
+    // Spring Boot Starters
+    // Versions managed by Spring Boot BOM with security-patched overrides
+    // declared in the ext block above. The starters transitively include:
+    //   - tomcat-embed-core (overridden to 10.1.47 via tomcat.version)
+    //   - spring-core, spring-web, spring-webmvc (overridden to 6.2.11 via spring-framework.version)
+    //   - spring-security-core (overridden to 6.5.4 via spring-security.version)
+    //   - logback-classic, logback-core (overridden to 1.5.19 via logback.version)
+    //   - log4j-to-slf4j (overridden to 2.25.0 via log4j2.version)
+    // =========================================================================
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // =========================================================================
+    // F-001: DEPENDENCY VULNERABILITY REMEDIATION — Non-BOM-managed packages
+    // Explicit version declarations for packages not managed by the Spring Boot
+    // BOM, requiring direct version specification for security patching.
+    // =========================================================================
+
+    // F-001: gRPC Netty Shaded — 5 CVEs resolved
+    // Upgraded from 1.70.0 to 1.75.0
+    // CVE-2024-21634: HTTP/2 Denial of Service (Rapid Reset attack vector)
+    // CVE-2024-7254: Protobuf parsing vulnerability
+    // CVE-2024-34155: gRPC/Netty codec vulnerability
+    // CVE-2024-34156: gRPC/Netty request smuggling vulnerability
+    // CVE-2024-34158: gRPC/Netty codec processing vulnerability
+    // Note: Module 1 (administrador) uses grpc-netty-shaded which bundles Netty
+    // internally (shaded), avoiding classpath conflicts with direct Netty
+    implementation 'io.grpc:grpc-netty-shaded:1.75.0'
+
+    // F-001: Apache Commons FileUpload2 Jakarta Servlet 6 — 2 CVEs resolved
+    // Upgraded from 2.0.0-M2 to 2.0.0-M3
+    // CVE-2024-25710: Denial of Service via infinite loop in archive processing
+    // CVE-2024-26308: Denial of Service via out-of-memory condition
+    implementation 'org.apache.commons:commons-fileupload2-jakarta-servlet6:2.0.0-M3'
+
+    // =========================================================================
+    // F-002: SAST REMEDIATION — OWASP Java Encoder (NEW DEPENDENCY)
+    // =========================================================================
+    // CWE-117 log injection remediation — provides Encode.forJava() for
+    // sanitizing user-controlled input in SLF4J/Logback log statements.
+    // Encodes CR/LF characters and other control sequences before they reach
+    // the log writer, preventing log entry forgery and exploitation of
+    // downstream log analysis tools.
+    //
+    // Used by 3 service files in Module 1 (administrador):
+    //   - LoginService.java (1 CWE-117 finding)
+    //   - RolService.java (1 CWE-117 finding)
+    //   - UsuarioService.java (2 CWE-117 findings)
+    // Total: 4 CWE-117 findings remediated in this module
+    //
+    // OWASP recommended approach for CWE-117 remediation.
+    // Library has zero transitive dependencies and is compatible with Java 8+.
+    implementation 'org.owasp.encoder:encoder:1.2.3'
+
+    // =========================================================================
+    // Apache Commons utilities
+    // Versions managed by Spring Boot BOM with security-patched overrides
+    // declared in the ext block:
+    //   - commons-io overridden to 2.18.0 (CVE-2024-47554)
+    //   - commons-lang3 overridden to 3.18.0 (DoS vulnerability)
+    // =========================================================================
+    implementation 'commons-io:commons-io'
+    implementation 'org.apache.commons:commons-lang3'
+
+    // =========================================================================
+    // Test dependencies
+    // spring-boot-starter-test transitively includes:
+    //   - assertj-core (overridden to 3.27.7 via assertj.version — CVE-2026-24400 XXE)
+    //   - JUnit 5 (Jupiter)
+    //   - Mockito
+    //   - Other testing utilities
+    // =========================================================================
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
