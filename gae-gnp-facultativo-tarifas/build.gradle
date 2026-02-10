@@ -1,0 +1,72 @@
+// =============================================================================
+// GAE-GNP Facultativo — Module 6: Tarifas
+// Gradle Build Configuration (Groovy DSL) — STUB for setup/dependency resolution
+// =============================================================================
+// This is a stub build.gradle that will be replaced by the final version
+// created by other agents. It follows the same pattern as other modules.
+// =============================================================================
+
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'mx.com.gnp.gae.facultativo'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    // F-001: Apache Tomcat Embed Core — 7 CVEs resolved
+    set('tomcat.version', '10.1.47')
+
+    // F-001: Spring Framework — 6 CVEs resolved
+    set('spring-framework.version', '6.2.11')
+
+    // F-001: Spring Security Core — 2 CVEs resolved
+    set('spring-security.version', '6.5.4')
+
+    // F-001: Logback — 1 Critical CVE resolved
+    set('logback.version', '1.5.19')
+
+    // F-001: Log4j-to-SLF4J Bridge — 1 CVE resolved
+    // CRITICAL: Using 2.25.0 because 2.24.4 does NOT exist on Maven Central
+    set('log4j2.version', '2.25.0')
+
+    // F-001: Apache Commons Lang3 — DoS vulnerability resolved
+    set('commons-lang3.version', '3.18.0')
+
+    // F-001: AssertJ Core — 1 CVE resolved (test scope)
+    set('assertj.version', '3.27.7')
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // F-001: gRPC Netty Shaded — 5 CVEs resolved
+    implementation 'io.grpc:grpc-netty-shaded:1.75.0'
+
+    // F-001: Apache Commons FileUpload2 — 2 CVEs resolved
+    implementation 'org.apache.commons:commons-fileupload2-jakarta-servlet6:2.0.0-M3'
+
+    // F-001: Apache Commons IO — CVE-2024-47554 resolved
+    implementation 'commons-io:commons-io:2.18.0'
+
+    implementation 'org.apache.commons:commons-lang3'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
