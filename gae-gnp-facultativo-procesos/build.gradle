@@ -77,9 +77,9 @@ ext {
     set('logback.version', '1.5.19')
 
     // F-001: Log4j-to-SLF4J Bridge — 1 CVE resolved
-    // Upgraded from 2.24.3 to 2.24.4
+    // Upgraded from 2.24.3 to 2.25.0 (2.24.4 does not exist on Maven Central)
     // CVE-2025-21549: Logging bridge vulnerability
-    set('log4j2.version', '2.24.4')
+    set('log4j2.version', '2.25.0')
 
     // F-001: Apache Commons IO — 1 CVE resolved
     // Upgraded from 2.11.0 to 2.18.0
@@ -106,7 +106,7 @@ dependencies {
     //   - spring-core, spring-web, spring-webmvc (overridden to 6.2.11 via spring-framework.version)
     //   - spring-security-core (overridden to 6.5.4 via spring-security.version)
     //   - logback-classic, logback-core (overridden to 1.5.19 via logback.version)
-    //   - log4j-to-slf4j (overridden to 2.24.4 via log4j2.version)
+    //   - log4j-to-slf4j (overridden to 2.25.0 via log4j2.version)
     // =========================================================================
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-security'
