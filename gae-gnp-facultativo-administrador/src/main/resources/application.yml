@@ -1,0 +1,95 @@
+# =============================================================================
+# GAE-GNP Facultativo — Module 1: Administrador (Administration)
+# Spring Boot Application Configuration
+# =============================================================================
+
+server:
+  port: 8081
+  servlet:
+    context-path: /api/administrador
+  tomcat:
+    connection-timeout: 20000
+    max-connections: 200
+    threads:
+      max: 200
+      min-spare: 10
+
+spring:
+  application:
+    name: gae-gnp-facultativo-administrador
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
+  datasource:
+    url: ${DB_URL:jdbc:oracle:thin:@localhost:1521:GNPFACDB}
+    username: ${DB_USERNAME:administrador_user}
+    password: ${DB_PASSWORD:}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.OracleDialect
+        format_sql: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  cloud:
+    gcp:
+      project-id: ${GCP_PROJECT_ID:gae-gnp-facultativo}
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    mx.com.gnp.gae.facultativo: DEBUG
+    org.springframework: WARN
+    org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/gae-gnp-facultativo-administrador.log
+
+# API Gateway / Apigee integration
+apigee:
+  gateway:
+    base-url: ${APIGEE_BASE_URL:https://api.gnp.com.mx}
+    # Security fix: Apigee token externalized to environment variable to eliminate
+    # hardcoded credential exposure in source control (Secret Detection finding — Critical severity).
+    # F-003 remediation: Previously hardcoded Apigee API Gateway token (l7xx... pattern) replaced
+    # with ${APIGEE_TOKEN} environment variable placeholder (Spring property resolution).
+    # The APIGEE_TOKEN env variable must be provisioned in the GCP deployment environment.
+    token: ${APIGEE_TOKEN}
+    timeout: 30000
+    retry:
+      max-attempts: 3
+      delay: 1000
+
+# gRPC service configuration
+grpc:
+  server:
+    port: 9091
+  client:
+    negotiation-type: PLAINTEXT
+
+# Module-specific administration settings
+administrador:
+  usuario:
+    max-login-attempts: 5
+    session-timeout: 1800
+    password-expiry-days: 90
+  rol:
+    cache-enabled: ${ROL_CACHE_ENABLED:true}
+    cache-ttl: 3600
+  login:
+    enable-audit: true
+    lockout-duration: 900
