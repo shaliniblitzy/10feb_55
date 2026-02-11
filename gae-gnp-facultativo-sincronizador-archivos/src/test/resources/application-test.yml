@@ -1,0 +1,82 @@
+# =============================================================================
+# GAE-GNP Facultativo — Module 5: Sincronizador de Archivos (File Synchronizer)
+# Spring Boot Test Environment Configuration (application-test.yml)
+# =============================================================================
+
+server:
+  port: 0
+  servlet:
+    context-path: /api/sincronizador-archivos
+
+spring:
+  application:
+    name: gae-gnp-facultativo-sincronizador-archivos
+  profiles:
+    active: test
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 60000
+      connection-timeout: 10000
+      max-lifetime: 600000
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  cloud:
+    gcp:
+      project-id: gae-gnp-facultativo-test
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    mx.com.gnp.gae.facultativo: DEBUG
+    org.springframework: DEBUG
+
+apigee:
+  gateway:
+    base-url: https://api-test.gnp.com.mx
+    # Security fix: Apigee token externalized to environment variable to eliminate
+    # hardcoded credential exposure in source control (Secret Detection finding — Critical severity).
+    # F-003 remediation: Previously hardcoded Apigee API Gateway token (l7xx... pattern) replaced
+    # with ${APIGEE_TOKEN} environment variable placeholder (Spring property resolution).
+    # The APIGEE_TOKEN env variable must be provisioned in the deployment environment.
+    token: ${APIGEE_TOKEN}
+    timeout: 30000
+    retry:
+      max-attempts: 3
+      delay: 1000
+
+# gRPC service configuration
+grpc:
+  server:
+    port: 0
+  client:
+    negotiation-type: PLAINTEXT
+
+# Module-specific file synchronization test settings
+sincronizador-archivos:
+  storage:
+    bucket-name: gae-gnp-facultativo-archivos-test
+    temp-directory: /tmp/sincronizador-test
+  sync:
+    batch-size: 10
+    scheduling-enabled: false
+    cron-expression: "0 0/15 * * * *"
+  file-upload:
+    max-retries: 1
+    retry-delay: 500
