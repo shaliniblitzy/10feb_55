@@ -1,0 +1,310 @@
+// Protocol Buffer definitions for Module 4 (reportes) gRPC services.
+//
+// Defines the gRPC service interface for ArchivosUsuarioService — user file
+// and report management for the GAE-GNP Facultativo reinsurance platform.
+//
+// Module 4 is an INTERNAL-ONLY module: it receives requests exclusively via
+// gRPC from other modules (no external HTTP endpoints). Primary callers:
+//   - Module 1 (administrador / UsuarioService) — report generation requests
+//   - Module 5 (sincronizador_archivos) — file synchronization coordination
+//
+// ARCHITECTURAL NOTE — Direct Netty Divergence Elimination:
+// In the original Java system, Module 4 (reportes) had a unique architectural
+// divergence: it used Direct Netty (4.1.121.Final) for its transport layer
+// instead of gRPC-Netty Shaded (1.70.0) like the other five modules. In the
+// Python rewrite, this divergence is ELIMINATED — all six modules use the same
+// unified grpcio 1.78.0 stack. This proto file defines the service contract
+// identically to the other modules, leveraging the consistent gRPC transport
+// provided by the Python grpcio library.
+
+syntax = "proto3";
+
+package facultativo.reportes;
+
+// Java interoperability options (preserved from original Java module namespace).
+option java_multiple_files = true;
+option java_package = "mx.com.gnp.rvi.facultativo.reportes";
+
+// Disable generic service generation for Python — use grpcio stubs instead.
+option py_generic_services = false;
+
+// Import shared message types from the common proto definitions.
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// ReportesService — gRPC service for Module 4 (reportes)
+//
+// Provides user file management and report generation capabilities through
+// the ArchivosUsuarioService. This service is internal-only and is accessed
+// exclusively via gRPC by other modules in the platform.
+//
+// RPC Methods:
+//   - GetArchivosUsuario:    List all user files with pagination
+//   - GetArchivoById:        Retrieve a single file by its identifier
+//   - UploadArchivo:         Upload a new file for a user
+//   - DeleteArchivo:         Remove a file by its identifier
+//   - GetArchivosByUsuario:  List files for a specific user with pagination
+//   - GenerateReport:        Initiate asynchronous report generation
+//   - GetReportStatus:       Check the status and progress of a report
+//   - SyncArchivos:          Synchronize files (called by Module 5)
+// ---------------------------------------------------------------------------
+service ReportesService {
+
+  // Retrieves a paginated list of all user files in the system.
+  // Used for administrative file listing and bulk operations.
+  rpc GetArchivosUsuario(GetArchivosUsuarioRequest) returns (GetArchivosUsuarioResponse);
+
+  // Retrieves a single file record by its unique identifier.
+  // Returns the full ArchivoUsuario entity with metadata.
+  rpc GetArchivoById(GetArchivoByIdRequest) returns (ArchivoResponse);
+
+  // Uploads a new file for a specific user.
+  // Accepts the file content as bytes along with metadata.
+  rpc UploadArchivo(UploadArchivoRequest) returns (ArchivoResponse);
+
+  // Deletes a file by its unique identifier.
+  // Removes both the file record and its stored content.
+  rpc DeleteArchivo(DeleteArchivoRequest) returns (DeleteArchivoResponse);
+
+  // Retrieves a paginated list of files belonging to a specific user.
+  // Filtered by usuario_id for user-scoped file management.
+  rpc GetArchivosByUsuario(GetArchivosByUsuarioRequest) returns (GetArchivosUsuarioResponse);
+
+  // Initiates asynchronous report generation for a user.
+  // Returns a report_id for subsequent status polling via GetReportStatus.
+  // Called by Module 1 (administrador / UsuarioService).
+  rpc GenerateReport(GenerateReportRequest) returns (GenerateReportResponse);
+
+  // Checks the current status and progress of a report generation job.
+  // Returns progress percentage and result file path when complete.
+  rpc GetReportStatus(GetReportStatusRequest) returns (ReportStatusResponse);
+
+  // Synchronizes files between storage locations.
+  // Called by Module 5 (sincronizador_archivos) for file sync coordination.
+  // Supports configurable sync direction and selective file targeting.
+  rpc SyncArchivos(SyncArchivosRequest) returns (SyncArchivosResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Entity Message
+// ---------------------------------------------------------------------------
+
+// ArchivoUsuario represents a user-owned file record in the reportes module.
+// Contains full file metadata including storage location, ownership, status,
+// and audit timestamps. This is the core entity for ArchivosUsuarioService.
+message ArchivoUsuario {
+
+  // Unique identifier for the file record.
+  string id = 1;
+
+  // Identifier of the user who owns this file.
+  string usuario_id = 2;
+
+  // Original file name as uploaded by the user.
+  string nombre_archivo = 3;
+
+  // File type or MIME type (e.g., "application/pdf", "text/csv").
+  string tipo_archivo = 4;
+
+  // File size in bytes.
+  int64 tamano = 5;
+
+  // File storage path or location reference (e.g., GCS bucket path).
+  string ruta = 6;
+
+  // Current file status (e.g., "activo", "eliminado", "procesando").
+  string estado = 7;
+
+  // Human-readable description of the file contents or purpose.
+  string descripcion = 8;
+
+  // Upload date timestamp — when the file was originally uploaded.
+  facultativo.common.Timestamp fecha_carga = 9;
+
+  // Record creation timestamp — when this database record was created.
+  facultativo.common.Timestamp created_at = 10;
+
+  // Last update timestamp — when this record was last modified.
+  facultativo.common.Timestamp updated_at = 11;
+}
+
+// ---------------------------------------------------------------------------
+// File Management Request and Response Messages
+// ---------------------------------------------------------------------------
+
+// Request to retrieve a paginated list of all user files.
+message GetArchivosUsuarioRequest {
+
+  // Pagination parameters for controlling result set size and offset.
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response containing a paginated list of user files.
+message GetArchivosUsuarioResponse {
+
+  // List of user file records matching the request criteria.
+  repeated ArchivoUsuario archivos = 1;
+
+  // Pagination metadata for the result set (total count, page info).
+  facultativo.common.PaginationResponse pagination = 2;
+
+  // Operation status indicator with success flag and message.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to retrieve a single file by its unique identifier.
+message GetArchivoByIdRequest {
+
+  // Unique identifier of the file to retrieve.
+  string archivo_id = 1;
+}
+
+// Response containing a single file record with operation status.
+// Used by GetArchivoById and UploadArchivo RPCs.
+message ArchivoResponse {
+
+  // The retrieved or newly created file record.
+  ArchivoUsuario archivo = 1;
+
+  // Operation status indicator with success flag and message.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to upload a new file for a specific user.
+// Carries the full file content as bytes along with metadata.
+message UploadArchivoRequest {
+
+  // Identifier of the user uploading the file.
+  string usuario_id = 1;
+
+  // Desired file name for the uploaded file.
+  string nombre_archivo = 2;
+
+  // File type or MIME type of the uploaded content.
+  string tipo_archivo = 3;
+
+  // Raw file content transmitted as a byte sequence.
+  bytes contenido = 4;
+
+  // Optional description of the file contents or purpose.
+  string descripcion = 5;
+}
+
+// Request to delete a file by its unique identifier.
+message DeleteArchivoRequest {
+
+  // Unique identifier of the file to delete.
+  string archivo_id = 1;
+}
+
+// Response for file deletion operations.
+message DeleteArchivoResponse {
+
+  // Operation status indicator confirming deletion success or failure.
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request to retrieve files belonging to a specific user with pagination.
+message GetArchivosByUsuarioRequest {
+
+  // Identifier of the user whose files to retrieve.
+  string usuario_id = 1;
+
+  // Pagination parameters for controlling result set size and offset.
+  facultativo.common.PaginationRequest pagination = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Report Generation Request and Response Messages
+// ---------------------------------------------------------------------------
+
+// Request to initiate asynchronous report generation for a user.
+// Called primarily by Module 1 (administrador / UsuarioService).
+message GenerateReportRequest {
+
+  // Identifier of the user requesting the report.
+  string usuario_id = 1;
+
+  // Type of report to generate (e.g., "resumen_polizas", "estado_cuenta").
+  string tipo_reporte = 2;
+
+  // Key-value parameters for report customization (e.g., date ranges, filters).
+  map<string, string> parametros = 3;
+}
+
+// Response confirming report generation has been initiated.
+// Contains the report_id for subsequent status polling.
+message GenerateReportResponse {
+
+  // Unique identifier assigned to the report generation job.
+  string report_id = 1;
+
+  // Initial generation status (e.g., "pendiente", "en_proceso").
+  string estado = 2;
+
+  // Operation status indicator with success flag and message.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to check the current status of a report generation job.
+message GetReportStatusRequest {
+
+  // Unique identifier of the report to check.
+  string report_id = 1;
+}
+
+// Response containing the current status and progress of a report job.
+// Provides progress tracking and result location when generation completes.
+message ReportStatusResponse {
+
+  // Unique identifier of the report being tracked.
+  string report_id = 1;
+
+  // Current generation status (e.g., "pendiente", "en_proceso", "completado", "error").
+  string estado = 2;
+
+  // Path to the generated report file when status is "completado".
+  // Empty string when report generation is still in progress.
+  string ruta_resultado = 3;
+
+  // Report generation progress as a percentage (0-100).
+  int32 progreso = 4;
+
+  // Operation status indicator with success flag and message.
+  facultativo.common.StatusResponse status = 5;
+}
+
+// ---------------------------------------------------------------------------
+// File Synchronization Request and Response Messages
+// (Used by Module 5 — sincronizador_archivos)
+// ---------------------------------------------------------------------------
+
+// Request to synchronize user files between storage locations.
+// Called by Module 5 (sincronizador_archivos) for file sync coordination.
+message SyncArchivosRequest {
+
+  // Identifier of the user whose files to synchronize.
+  string usuario_id = 1;
+
+  // List of specific file identifiers to synchronize.
+  // If empty, all files for the user may be synced based on configuration.
+  repeated string archivo_ids = 2;
+
+  // Direction of synchronization (e.g., "upload", "download", "bidirectional").
+  string sync_direction = 3;
+}
+
+// Response from a file synchronization operation.
+// Reports the count of successfully synced files and any errors encountered.
+message SyncArchivosResponse {
+
+  // Number of files successfully synchronized.
+  int32 archivos_sincronizados = 1;
+
+  // List of error messages for files that failed to synchronize.
+  // Empty list indicates all files synced successfully.
+  repeated string errores = 2;
+
+  // Operation status indicator with success flag and message.
+  facultativo.common.StatusResponse status = 3;
+}
