@@ -1,0 +1,227 @@
+# ============================================================================
+# GAE-GNP Facultativo — Base Application Configuration
+# ============================================================================
+#
+# This is the FOUNDATIONAL configuration file for the Python/Flask rewrite of
+# the GAE-GNP Facultativo microservice platform. It is loaded FIRST by
+# app/config.py and provides defaults that are selectively overridden by
+# environment-specific files:
+#
+#   config/application.yml        ← THIS FILE (base defaults)
+#   config/application-test.yml   ← overrides for FLASK_ENV=testing
+#   config/application-prod.yml   ← overrides for FLASK_ENV=production
+#
+# Configuration hierarchy (lowest to highest precedence):
+#   1. This base YAML file
+#   2. Environment-specific YAML overrides (test / prod)
+#   3. Environment variables (os.environ)
+#   4. GCP Secret Manager (production only, when secret_manager_enabled: true)
+#
+# This single file REPLACES the six separate per-module application.yml files
+# from the original Java microservice modules:
+#   - administrador/src/main/resources/application.yml
+#   - catalogos/src/main/resources/application.yml
+#   - procesos/src/main/resources/application.yml
+#   - reportes/src/main/resources/application.yml
+#   - sincronizador-archivos/src/main/resources/application.yml
+#   - tarifas/src/main/resources/application.yml
+#
+# All keys use snake_case (Python convention), not camelCase (Java convention).
+# All sensitive values use ${ENV_VAR} placeholder syntax — no hardcoded secrets.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Server Configuration
+# ----------------------------------------------------------------------------
+# Replaces the embedded Apache Tomcat 10.1.41 HTTP port and the gRPC-Netty
+# transport ports from the original Java system.
+server:
+  flask_port: 8080       # HTTP port matching Google App Engine standard; replaces Tomcat
+  grpc_port: 50051       # Standard gRPC port; replaces gRPC-Netty Shaded transport
+  host: "0.0.0.0"        # Bind to all interfaces for container/cloud deployment
+
+# ----------------------------------------------------------------------------
+# Flask Application Settings
+# ----------------------------------------------------------------------------
+# Replaces Spring Framework 6.2.7 application context and Spring Boot
+# auto-configuration properties.
+flask:
+  env: development        # Default environment (overridden by FLASK_ENV env var)
+  debug: true             # Debug mode for development (disabled in prod/test)
+  testing: false          # Testing flag (enabled only in test config)
+  secret_key: "${FLASK_SECRET_KEY}"  # Session signing key — MUST come from env var
+
+# ----------------------------------------------------------------------------
+# Apigee API Gateway Configuration
+# ----------------------------------------------------------------------------
+# In the original Java system, Modules 1 (administrador), 3 (procesos), and
+# 5 (sincronizador-archivos) had Apigee authentication tokens HARDCODED in
+# their respective application.yml files. This was identified as a security
+# vulnerability (credential exposure in source code).
+#
+# In this Python rewrite, ALL Apigee credentials are externalized to
+# environment variables per the No Hardcoded Secrets policy. The ${APIGEE_TOKEN}
+# placeholder is resolved at runtime by app/config.py from os.environ or
+# GCP Secret Manager.
+apigee:
+  token: "${APIGEE_TOKEN}"              # Replaces hardcoded tokens from Java Modules 1, 3, 5
+  gateway_url: "${APIGEE_GATEWAY_URL}"  # Apigee gateway base URL
+  validate_tokens: true                 # Enable Apigee token validation on external endpoints
+
+# ----------------------------------------------------------------------------
+# Module Configuration — All Six Modules
+# ----------------------------------------------------------------------------
+# Each of the six original Java microservice modules is configured here as a
+# logical unit. Modules are registered as Flask blueprints in app/__init__.py.
+#
+# Module categorization:
+#   External (Apigee-facing): Modules 1, 3, 5 — served via HTTP through Apigee
+#   Internal (gRPC-only):     Modules 2, 4, 6 — accessed only via gRPC calls
+#
+# All modules run within a single Python process (Flask + gRPC server),
+# unlike the original Java system where each module was a separate deployment.
+modules:
+
+  # Module 1: administrador — External-facing via Apigee API Gateway
+  # Services: LoginService, RolService, UsuarioService
+  # Provides user authentication, role management, and user administration.
+  # This is the primary authentication module for the entire platform.
+  administrador:
+    enabled: true
+    url_prefix: "/api/administrador"
+    external: true          # Exposed through Apigee API Gateway
+
+  # Module 2: catalogos — Internal gRPC only
+  # Services: ReaseguradoraService
+  # Manages reinsurer catalog data. Called by Module 3 (procesos) during
+  # offer processing for catalog lookups.
+  catalogos:
+    enabled: true
+    url_prefix: "/api/catalogos"
+    external: false         # Internal-only, accessed via gRPC
+
+  # Module 3: procesos — External-facing via Apigee API Gateway
+  # Services: OfertaService, PolizaService
+  # Highest complexity module handling offer management and policy processing.
+  # PolizaService is the highest-density service (originally had 13 SAST
+  # findings in the Java codebase — all sanitization patterns are implemented
+  # from the start in the Python rewrite).
+  procesos:
+    enabled: true
+    url_prefix: "/api/procesos"
+    external: true          # Exposed through Apigee API Gateway
+
+  # Module 4: reportes — Internal gRPC only
+  # Services: ArchivosUsuarioService
+  # Manages user files and report generation.
+  # ARCHITECTURE NOTE: In the original Java system, this module used Direct
+  # Netty (netty-codec-http2 4.1.121.Final) instead of gRPC-Netty Shaded,
+  # creating an architectural divergence from the other five modules. In the
+  # Python rewrite, this divergence is ELIMINATED — all modules uniformly
+  # use grpcio 1.78.0 as the transport layer, providing a consistent and
+  # simplified communication infrastructure.
+  reportes:
+    enabled: true
+    url_prefix: "/api/reportes"
+    external: false         # Internal-only, accessed via gRPC
+
+  # Module 5: sincronizador_archivos — External-facing via Apigee API Gateway
+  # Services: Configuration-driven file synchronization
+  # NOTE: In the original Java system, this module had a dual-environment
+  # secret scope with Apigee tokens configured in BOTH application.yml (line 63)
+  # and application-test.yml (line 52). This dual-scope is preserved in the
+  # Python rewrite via the application-test.yml override file.
+  sincronizador_archivos:
+    enabled: true
+    url_prefix: "/api/sincronizador-archivos"   # HYPHEN in URL path, underscore in Python module name
+    external: true          # Exposed through Apigee API Gateway
+
+  # Module 6: tarifas — Internal gRPC only
+  # Services: Tariff calculation and rate management
+  # Called by Module 3 (procesos) during policy evaluation for tariff lookups.
+  tarifas:
+    enabled: true
+    url_prefix: "/api/tarifas"
+    external: false         # Internal-only, accessed via gRPC
+
+# ----------------------------------------------------------------------------
+# Service Registry — gRPC Service Discovery
+# ----------------------------------------------------------------------------
+# Defines the gRPC endpoint addresses for inter-module communication.
+# These addresses are consumed by gRPC client stubs in app/grpc_server/clients.py.
+#
+# In development, all services run within the same process on localhost.
+# In production, these addresses are overridden by application-prod.yml or
+# environment variables to point to the appropriate GCP network endpoints.
+#
+# Documented inter-module communication flows:
+#   1. procesos (Module 3) → catalogos (Module 2)
+#      Purpose: Catalog lookup during offer processing (OfertaService → ReaseguradoraService)
+#   2. administrador (Module 1) → reportes (Module 4)
+#      Purpose: Report generation request (UsuarioService → ArchivosUsuarioService)
+#   3. procesos (Module 3) → tarifas (Module 6)
+#      Purpose: Tariff calculation during policy evaluation (PolizaService → TarifasServicer)
+#   4. sincronizador_archivos (Module 5) → reportes (Module 4)
+#      Purpose: File sync coordination (SyncService → ArchivosUsuarioService)
+services:
+
+  # Module 2: catalogos — called by procesos (Module 3) for catalog lookups
+  catalogos:
+    grpc_host: "localhost"
+    grpc_port: 50051
+
+  # Module 4: reportes — called by administrador (Module 1) and sincronizador_archivos (Module 5)
+  reportes:
+    grpc_host: "localhost"
+    grpc_port: 50051
+
+  # Module 6: tarifas — called by procesos (Module 3) for tariff calculations
+  tarifas:
+    grpc_host: "localhost"
+    grpc_port: 50051
+
+# ----------------------------------------------------------------------------
+# Logging Configuration
+# ----------------------------------------------------------------------------
+# Replaces the dual Logback Classic 1.5.18 + Log4j API 2.25.0 logging stack
+# from the original Java system with Python's unified logging module.
+# Detailed handler and formatter configuration is in config/logging.yml.
+logging:
+  level: INFO                           # Default log level (overridable via LOG_LEVEL env var)
+  config_file: "config/logging.yml"     # Path to detailed logging configuration
+  modules:
+    app: INFO                           # Application core
+    app.blueprints: INFO                # All blueprint modules
+    app.grpc_server: INFO               # gRPC server infrastructure
+    app.auth: INFO                      # Authentication and authorization
+    grpc: WARNING                       # Suppress verbose gRPC internal logging
+    werkzeug: WARNING                   # Suppress verbose Werkzeug request logging
+
+# ----------------------------------------------------------------------------
+# Google Cloud Platform Configuration
+# ----------------------------------------------------------------------------
+# Controls GCP-specific integrations. In development, Secret Manager is
+# disabled and credentials come from environment variables. In production,
+# Secret Manager is enabled via application-prod.yml to resolve sensitive
+# values like APIGEE_TOKEN and FLASK_SECRET_KEY from GCP Secret Manager.
+gcp:
+  project_id: "${GCP_PROJECT_ID}"       # GCP project identifier
+  secret_manager_enabled: false         # Disabled by default; enabled in production
+
+# ----------------------------------------------------------------------------
+# gRPC Server and Client Configuration
+# ----------------------------------------------------------------------------
+# Configures the gRPC server that runs alongside the Flask WSGI server in
+# the same Python process, managed via threading. Replaces both the
+# gRPC-Netty Shaded transport (Modules 1, 2, 3, 5, 6) and the Direct Netty
+# transport (Module 4) with a single unified grpcio stack.
+grpc:
+  server:
+    port: 50051                         # gRPC server listen port
+    max_workers: 10                     # Thread pool size for gRPC server
+    max_message_length: 4194304         # 4MB max message size (gRPC default)
+    reflection_enabled: true            # Enable gRPC reflection for development tooling
+  client:
+    timeout: 30                         # Default gRPC client call timeout in seconds
+    retry_enabled: true                 # Enable automatic retry for transient failures
+    max_retries: 3                      # Maximum number of retry attempts per call
