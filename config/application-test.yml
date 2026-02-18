@@ -1,0 +1,172 @@
+# ============================================================================
+# GAE-GNP Facultativo — Test Environment Configuration Overrides
+# ============================================================================
+#
+# Test-specific configuration that selectively OVERRIDES the base defaults
+# defined in config/application.yml.  This file is loaded by app/config.py's
+# TestConfig class when FLASK_ENV=testing.
+#
+# It replaces the per-module application-test.yml files from the original six
+# Java microservice modules:
+#   - administrador/src/main/resources/application-test.yml
+#   - catalogos/src/main/resources/application-test.yml
+#   - procesos/src/main/resources/application-test.yml
+#   - reportes/src/main/resources/application-test.yml
+#   - sincronizador-archivos/src/main/resources/application-test.yml
+#   - tarifas/src/main/resources/application-test.yml
+#
+# Configuration hierarchy (lowest to highest precedence):
+#   1. config/application.yml        (base defaults)
+#   2. THIS FILE                     (test overrides)
+#   3. Environment variables         (os.environ)
+#   4. GCP Secret Manager            (DISABLED in test — see gcp section)
+#
+# CRITICAL AAP REQUIREMENT (Section 0.4.1):
+#   Module 5 (sincronizador-archivos) had dual-environment secret scope with
+#   Apigee tokens configured in BOTH application.yml (line 63) and
+#   application-test.yml (line 52) in the original Java system.  This dual
+#   scope is preserved below via a module-specific ${APIGEE_TOKEN_TEST}
+#   environment variable placeholder.
+#
+# NO HARDCODED SECRETS — all sensitive values use ${ENV_VAR} placeholders.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Server Configuration — Test Port Overrides
+# ----------------------------------------------------------------------------
+# Uses DISTINCT ports from the base config (8080/50051) so that development
+# and test environments can run concurrently without port conflicts.
+server:
+  flask_port: 8081       # Test HTTP port (base: 8080)
+  grpc_port: 50052       # Test gRPC port (base: 50051)
+
+# ----------------------------------------------------------------------------
+# Flask Application Settings — Test Mode
+# ----------------------------------------------------------------------------
+# Enables Flask's TESTING flag for test-specific behaviours (e.g. error
+# propagation) while keeping debug OFF to match production-like conditions.
+flask:
+  env: testing
+  debug: false
+  testing: true
+  secret_key: "test-secret-key-not-for-production"  # Clearly labelled test-only value
+
+# ----------------------------------------------------------------------------
+# Apigee API Gateway Configuration — Test Overrides
+# ----------------------------------------------------------------------------
+# Disables real Apigee token validation so that tests can execute without
+# requiring a live Apigee gateway connection.  The token placeholder is still
+# present for tests that explicitly verify token-handling logic.
+apigee:
+  token: "${APIGEE_TOKEN}"                       # Resolved from env var at runtime
+  gateway_url: "https://test-apigee.gnp.com.mx"  # Test-environment gateway URL
+  validate_tokens: false                          # DISABLED — no live Apigee in tests
+
+# ----------------------------------------------------------------------------
+# Module Configuration — All Six Modules Enabled for Testing
+# ----------------------------------------------------------------------------
+# All modules are enabled so that the full test suite can exercise every
+# blueprint and gRPC servicer.
+#
+# CRITICAL: Module 5 (sincronizador_archivos) preserves the dual-environment
+# secret scope from the original Java system via a dedicated test token
+# environment variable (${APIGEE_TOKEN_TEST}).
+modules:
+
+  # Module 1: administrador — External (Apigee-facing)
+  # Services: LoginService, RolService, UsuarioService
+  administrador:
+    enabled: true
+
+  # Module 2: catalogos — Internal (gRPC-only)
+  # Services: ReaseguradoraService
+  catalogos:
+    enabled: true
+
+  # Module 3: procesos — External (Apigee-facing)
+  # Services: OfertaService, PolizaService
+  procesos:
+    enabled: true
+
+  # Module 4: reportes — Internal (gRPC-only)
+  # Services: ArchivosUsuarioService
+  reportes:
+    enabled: true
+
+  # Module 5: sincronizador_archivos — External (Apigee-facing)
+  # Services: Configuration-driven file synchronization
+  # DUAL-ENVIRONMENT SCOPE: In the original Java system, this module had
+  # separate Apigee token configuration in both application.yml and
+  # application-test.yml.  This is preserved here via the module-specific
+  # ${APIGEE_TOKEN_TEST} environment variable, allowing a distinct test
+  # token independently of the global ${APIGEE_TOKEN}.
+  sincronizador_archivos:
+    enabled: true
+    apigee_token: "${APIGEE_TOKEN_TEST}"  # Module 5 test-specific token override
+
+  # Module 6: tarifas — Internal (gRPC-only)
+  # Services: Tariff calculation and rate management
+  tarifas:
+    enabled: true
+
+# ----------------------------------------------------------------------------
+# Logging Configuration — Verbose for Test Debugging
+# ----------------------------------------------------------------------------
+# Elevates all module log levels to DEBUG so that test failures produce
+# sufficient diagnostic output for rapid root-cause analysis.
+logging:
+  level: DEBUG
+  modules:
+    app: DEBUG                  # Application core
+    app.blueprints: DEBUG       # All blueprint modules
+    app.grpc_server: DEBUG      # gRPC server infrastructure
+    app.auth: DEBUG             # Authentication and authorization
+
+# ----------------------------------------------------------------------------
+# Google Cloud Platform Configuration — Disabled for Testing
+# ----------------------------------------------------------------------------
+# GCP Secret Manager is DISABLED in the test environment.  Secrets are
+# resolved exclusively from environment variables, ensuring tests run without
+# GCP connectivity.
+gcp:
+  project_id: "test-project-id"
+  secret_manager_enabled: false  # DISABLED — use env vars, not Secret Manager
+
+# ----------------------------------------------------------------------------
+# Service Registry — Test gRPC Endpoints
+# ----------------------------------------------------------------------------
+# All gRPC services run on localhost with the test gRPC port (50052) so that
+# test fixtures can spin up in-process gRPC test servers alongside Flask.
+services:
+
+  # Module 2: catalogos — called by procesos (Module 3) for catalog lookups
+  catalogos:
+    grpc_host: "localhost"
+    grpc_port: 50052
+
+  # Module 4: reportes — called by administrador (Module 1) and
+  # sincronizador_archivos (Module 5) for report and file operations
+  reportes:
+    grpc_host: "localhost"
+    grpc_port: 50052
+
+  # Module 6: tarifas — called by procesos (Module 3) for tariff calculations
+  tarifas:
+    grpc_host: "localhost"
+    grpc_port: 50052
+
+# ----------------------------------------------------------------------------
+# gRPC Server and Client Configuration — Test Overrides
+# ----------------------------------------------------------------------------
+# Mirrors the base gRPC configuration with the test port and reduced resource
+# allocation appropriate for test workloads.
+grpc:
+  server:
+    port: 50052               # Test gRPC server port (base: 50051)
+    max_workers: 4             # Fewer workers than production; sufficient for tests
+    max_message_length: 4194304  # 4MB max message size (unchanged from base)
+    reflection_enabled: true   # Keep reflection enabled for test tooling
+  client:
+    timeout: 10                # Shorter timeout for faster test failure detection
+    retry_enabled: false       # Disable retries in tests for deterministic behaviour
+    max_retries: 0             # No retries — fail fast in tests
