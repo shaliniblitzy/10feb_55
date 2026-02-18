@@ -1,0 +1,266 @@
+# =============================================================================
+# config/logging.yml — Unified Logging Configuration
+# =============================================================================
+#
+# Replaces the dual Logback Classic 1.5.18 + Log4j API 2.25.0 logging stack
+# from the original six Java microservice modules of the GAE-GNP Facultativo
+# platform. Python's unified logging module provides a single stack that
+# replaces both Java logging frameworks.
+#
+# Loaded by: app/logging_config.py -> setup_logging() -> logging.config.dictConfig()
+#
+# GCP Cloud Logging Compatibility:
+#   - ALL output goes to stdout/stderr (GCP captures these automatically)
+#   - NO file-based handlers (RotatingFileHandler) are used
+#   - The 'json' formatter enables structured logging for production
+#
+# CWE-117 Log Injection Prevention Note:
+#   - This configuration does NOT implement sanitization directly
+#   - Sanitization is handled by app/utils/input_sanitizer.py at the call site
+#   - Formatters use clear delimiters ([%(levelname)s]) to help detect injection
+#
+# =============================================================================
+
+# Required by Python's logging.config.dictConfig() — version 1 is the ONLY valid value
+version: 1
+
+# Preserve gRPC, Werkzeug, and Flask internal loggers that are configured
+# before this file is loaded. Setting this to true would disable them.
+disable_existing_loggers: false
+
+# =============================================================================
+# Formatters
+# =============================================================================
+# Replicate formatting patterns from both Logback Classic and Log4j API.
+# Three formatters cover all use cases: general, debug, and structured (GCP).
+
+formatters:
+  # Standard formatter — general application logging
+  # Replaces Logback's default console appender pattern
+  standard:
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  # Detailed formatter — debugging with full source location
+  # Replaces Log4j's detailed pattern with file, line number, and function name
+  detailed:
+    format: "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d] [%(funcName)s]: %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  # JSON formatter — structured logging for GCP Cloud Logging
+  # Machine-parseable format for production log aggregation and analysis
+  json:
+    format: '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s", "file": "%(filename)s", "line": %(lineno)d}'
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+
+# =============================================================================
+# Handlers
+# =============================================================================
+# All handlers output to stdout/stderr for GCP Cloud Logging compatibility.
+# NO file-based handlers (RotatingFileHandler) — GCP captures stdout/stderr.
+
+handlers:
+  # Primary console handler — standard format to stdout
+  # Used by all module loggers for general output
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: standard
+    stream: ext://sys.stdout
+
+  # Detailed console handler — debug format to stdout
+  # Used during development for verbose debugging output
+  console_detailed:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: detailed
+    stream: ext://sys.stdout
+
+  # Error console handler — detailed format to stderr
+  # Captures ERROR and CRITICAL messages on stderr for GCP error reporting
+  error_console:
+    class: logging.StreamHandler
+    level: ERROR
+    formatter: detailed
+    stream: ext://sys.stderr
+
+# =============================================================================
+# Root Logger
+# =============================================================================
+# Default logging configuration for any logger not explicitly configured below.
+# Level is INFO (overridable via LOG_LEVEL environment variable in
+# app/logging_config.py).
+
+root:
+  level: INFO
+  handlers:
+    - console
+    - error_console
+
+# =============================================================================
+# Loggers
+# =============================================================================
+# Per-module loggers replacing per-module Logback configurations from the
+# original six Java microservice modules. Each logger has propagate: false
+# to prevent duplicate log entries from being emitted by parent loggers.
+
+loggers:
+  # ---------------------------------------------------------------------------
+  # Application Core Logger
+  # ---------------------------------------------------------------------------
+  # Base logger for the Flask application package.
+  # Captures any logging from app-level modules not covered by specific loggers.
+  app:
+    level: INFO
+    handlers:
+      - console
+      - error_console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 1: administrador
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.services (Module 1)
+  # Services: LoginService, RolService, UsuarioService
+  # Access: External — exposed through Apigee API Gateway
+  # Purpose: User authentication, role management, and user administration
+  app.blueprints.administrador:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 2: catalogos
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.services (Module 2)
+  # Services: ReaseguradoraService
+  # Access: Internal — gRPC only (called by procesos for catalog lookups)
+  # Purpose: Reinsurer catalog management
+  app.blueprints.catalogos:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 3: procesos
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.services (Module 3)
+  # Services: OfertaService, PolizaService
+  # Access: External — exposed through Apigee API Gateway
+  # Purpose: Offer management and policy processing (highest complexity module)
+  # Note: PolizaService was the highest-density service in the original Java
+  # codebase with 13 SAST findings — all sanitization patterns are enforced
+  # at the service layer via app/utils/input_sanitizer.py
+  app.blueprints.procesos:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 4: reportes
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.service (Module 4 — singular)
+  # Services: ArchivosUsuarioService
+  # Access: Internal — gRPC only (called by administrador and sincronizador)
+  # Purpose: User file and report management
+  # Note: In the original Java system, this module used Direct Netty transport
+  # instead of gRPC-Netty Shaded. This divergence is eliminated in the Python
+  # rewrite — all modules use grpcio uniformly.
+  app.blueprints.reportes:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 5: sincronizador_archivos
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.services (Module 5)
+  # Services: Configuration-driven file synchronization
+  # Access: External — exposed through Apigee API Gateway
+  # Purpose: File synchronization across environments
+  # Note: This module had dual-environment secret scope in the original Java
+  # system with Apigee tokens in both application.yml and application-test.yml
+  app.blueprints.sincronizador_archivos:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Module 6: tarifas
+  # ---------------------------------------------------------------------------
+  # Java equivalent: mx.com.gnp.rvi.facultativo.services (Module 6)
+  # Services: Tariff calculation and rate management
+  # Access: Internal — gRPC only (called by procesos for tariff calculations)
+  # Purpose: Tariff calculation during policy evaluation
+  app.blueprints.tarifas:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure Loggers
+  # ---------------------------------------------------------------------------
+
+  # gRPC server infrastructure — server lifecycle, servicer registration,
+  # interceptor activity, and client stub operations
+  app.grpc_server:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # Authentication and authorization — Apigee token validation middleware,
+  # role-based access control decorators, and session management
+  app.auth:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # Shared utilities — input sanitizer (CWE-117 prevention), request
+  # validators, and common helper functions
+  app.utils:
+    level: INFO
+    handlers:
+      - console
+    propagate: false
+
+  # ---------------------------------------------------------------------------
+  # Third-Party Library Loggers
+  # ---------------------------------------------------------------------------
+  # Suppressed to WARNING level to reduce noise from verbose internal logging.
+  # These libraries produce excessive DEBUG/INFO output that clutters logs.
+
+  # gRPC library internals (channel management, transport, name resolution)
+  grpc:
+    level: WARNING
+    handlers:
+      - console
+    propagate: false
+
+  # Werkzeug WSGI toolkit (HTTP request logging, URL routing debug output)
+  werkzeug:
+    level: WARNING
+    handlers:
+      - console
+    propagate: false
+
+  # urllib3 HTTP client library (connection pooling, retry, SSL debug output)
+  urllib3:
+    level: WARNING
+    handlers:
+      - console
+    propagate: false
+
+  # Google Cloud SDK libraries (Secret Manager client, API transport)
+  google:
+    level: WARNING
+    handlers:
+      - console
+    propagate: false
