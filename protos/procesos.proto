@@ -1,0 +1,525 @@
+// procesos.proto — Module 3 gRPC Service Definitions for the GAE-GNP Facultativo Platform
+//
+// This file defines the Protocol Buffer service interface for Module 3 (procesos),
+// which encompasses both OfertaService (offer management) and PolizaService (policy
+// processing). Module 3 is the HIGHEST COMPLEXITY module in the platform with the
+// most service methods — 16 RPCs covering the complete lifecycle of offers and policies.
+//
+// Module 3 is EXTERNAL-facing (HTTP via Apigee API Gateway) and also accepts internal
+// gRPC calls from other modules. It has two key inter-module dependencies:
+//   - Module 3 → Module 2 (catalogos): OfertaService calls ReaseguradoraService
+//     for reinsurer catalog lookups during offer creation and validation.
+//   - Module 3 → Module 6 (tarifas): PolizaService calls tariff servicer for
+//     tariff calculation during policy evaluation and premium computation.
+//
+// PolizaService was the highest-density service in the original Java codebase
+// (13 SAST findings in the original mx.com.gnp.rvi.facultativo.services package).
+// All sanitization patterns are enforced at the application layer (Python services),
+// not at the proto definition layer.
+//
+// Imports shared message types from common.proto:
+//   - facultativo.common.Timestamp      (date/time fields)
+//   - facultativo.common.StatusResponse  (operation status in responses)
+//   - facultativo.common.PaginationRequest  (paginated list/search requests)
+//   - facultativo.common.PaginationResponse (paginated list response metadata)
+
+syntax = "proto3";
+
+package facultativo.procesos;
+
+option java_multiple_files = true;
+option java_package = "mx.com.gnp.rvi.facultativo.procesos";
+option py_generic_services = false;
+
+import "common.proto";
+
+// ============================================================================
+// ProcesosService — Combined gRPC service for Module 3
+// ============================================================================
+//
+// This service unifies OfertaService (offer management) and PolizaService
+// (policy processing) into a single gRPC service definition. It provides
+// complete CRUD operations, evaluation workflows, premium calculations,
+// search capabilities, and audit history for both offers and policies.
+//
+// RPC Method Summary:
+//   Offer Management (7 RPCs):
+//     - GetOfertas:      List offers with pagination
+//     - GetOfertaById:   Retrieve a single offer by ID
+//     - CreateOferta:    Create a new offer
+//     - UpdateOferta:    Update an existing offer
+//     - DeleteOferta:    Delete an offer
+//     - EvaluateOferta:  Evaluate an offer (risk assessment)
+//     - SearchOfertas:   Search offers with filters and pagination
+//
+//   Policy Processing (9 RPCs):
+//     - GetPolizas:             List policies with pagination
+//     - GetPolizaById:          Retrieve a single policy by ID
+//     - CreatePoliza:           Create a new policy
+//     - UpdatePoliza:           Update an existing policy
+//     - DeletePoliza:           Delete a policy
+//     - EvaluatePoliza:         Evaluate a policy (risk + premium assessment)
+//     - CalculatePolizaPremium: Calculate premium for a policy
+//     - GetPolizaHistory:       Retrieve audit history for a policy
+//     - SearchPolizas:          Search policies with filters and pagination
+service ProcesosService {
+
+  // --- Offer Management RPCs (OfertaService) ---
+
+  // Retrieves a paginated list of all offers in the system.
+  rpc GetOfertas(GetOfertasRequest) returns (GetOfertasResponse);
+
+  // Retrieves a single offer by its unique identifier.
+  rpc GetOfertaById(GetOfertaByIdRequest) returns (OfertaResponse);
+
+  // Creates a new offer with the provided details. The reaseguradora_id
+  // links to Module 2 (catalogos) for reinsurer catalog validation.
+  rpc CreateOferta(CreateOfertaRequest) returns (OfertaResponse);
+
+  // Updates an existing offer. Only mutable fields may be changed.
+  rpc UpdateOferta(UpdateOfertaRequest) returns (OfertaResponse);
+
+  // Deletes an offer by its unique identifier.
+  rpc DeleteOferta(DeleteOfertaRequest) returns (DeleteOfertaResponse);
+
+  // Evaluates an offer by performing risk assessment and generating
+  // evaluation notes. May trigger cross-module calls to catalogos (Module 2).
+  rpc EvaluateOferta(EvaluateOfertaRequest) returns (EvaluateOfertaResponse);
+
+  // Searches offers using query text and optional filters with pagination.
+  rpc SearchOfertas(SearchOfertasRequest) returns (GetOfertasResponse);
+
+  // --- Policy Processing RPCs (PolizaService) ---
+  // PolizaService is the highest-density service — all sanitization patterns
+  // must be applied at the application layer for every field processed.
+
+  // Retrieves a paginated list of all policies in the system.
+  rpc GetPolizas(GetPolizasRequest) returns (GetPolizasResponse);
+
+  // Retrieves a single policy by its unique identifier.
+  rpc GetPolizaById(GetPolizaByIdRequest) returns (PolizaResponse);
+
+  // Creates a new policy with the provided details. Links to an offer
+  // (oferta_id) and reinsurer (reaseguradora_id from Module 2 catalogos).
+  rpc CreatePoliza(CreatePolizaRequest) returns (PolizaResponse);
+
+  // Updates an existing policy. Only mutable fields may be changed.
+  rpc UpdatePoliza(UpdatePolizaRequest) returns (PolizaResponse);
+
+  // Deletes a policy by its unique identifier.
+  rpc DeletePoliza(DeletePolizaRequest) returns (DeletePolizaResponse);
+
+  // Evaluates a policy by performing risk assessment, calculating premium
+  // and tariff. Triggers cross-module calls to tarifas (Module 6) for
+  // tariff calculation during policy evaluation.
+  rpc EvaluatePoliza(EvaluatePolizaRequest) returns (EvaluatePolizaResponse);
+
+  // Calculates the premium for a policy based on insured sum and insurance
+  // type. Triggers cross-module calls to tarifas (Module 6).
+  rpc CalculatePolizaPremium(CalculatePremiumRequest) returns (CalculatePremiumResponse);
+
+  // Retrieves the complete audit history for a policy, including all
+  // modifications, status changes, and evaluations performed.
+  rpc GetPolizaHistory(GetPolizaHistoryRequest) returns (GetPolizaHistoryResponse);
+
+  // Searches policies using query text and optional filters with pagination.
+  rpc SearchPolizas(SearchPolizasRequest) returns (GetPolizasResponse);
+}
+
+// ============================================================================
+// Oferta Messages — Offer Entity and Request/Response Types
+// ============================================================================
+
+// Oferta represents an insurance offer in the facultativo reinsurance system.
+// Offers are the initial proposal stage before a policy is issued. Each offer
+// is linked to a reinsurer (reaseguradora_id references Module 2 catalogos).
+message Oferta {
+  // Unique identifier for the offer.
+  string id = 1;
+  // Human-readable offer number for business reference.
+  string numero_oferta = 2;
+  // Reference to the reinsurer from Module 2 (catalogos) ReaseguradoraService.
+  string reaseguradora_id = 3;
+  // Type of insurance coverage (e.g., vida, daños, salud).
+  string tipo_seguro = 4;
+  // Current status of the offer (e.g., pendiente, aprobada, rechazada).
+  string estado = 5;
+  // Total insured sum (suma asegurada) for the offer.
+  double suma_asegurada = 6;
+  // Premium amount calculated or proposed for the offer.
+  double prima = 7;
+  // Currency code for monetary values (e.g., MXN, USD).
+  string moneda = 8;
+  // Detailed description of the offer terms and conditions.
+  string descripcion = 9;
+  // Name or identifier of the party requesting the offer.
+  string solicitante = 10;
+  // Coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 11;
+  // Coverage end date.
+  facultativo.common.Timestamp fecha_fin = 12;
+  // Timestamp when the offer was created.
+  facultativo.common.Timestamp created_at = 13;
+  // Timestamp when the offer was last updated.
+  facultativo.common.Timestamp updated_at = 14;
+}
+
+// Request to retrieve a paginated list of all offers.
+message GetOfertasRequest {
+  // Pagination parameters for the offer list.
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response containing a paginated list of offers.
+message GetOfertasResponse {
+  // List of offers matching the request criteria.
+  repeated Oferta ofertas = 1;
+  // Pagination metadata for the response.
+  facultativo.common.PaginationResponse pagination = 2;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to retrieve a single offer by its unique identifier.
+message GetOfertaByIdRequest {
+  // Unique identifier of the offer to retrieve.
+  string oferta_id = 1;
+}
+
+// Response containing a single offer and operation status.
+// Used as the response type for GetOfertaById, CreateOferta, and UpdateOferta RPCs.
+message OfertaResponse {
+  // The requested or modified offer entity.
+  Oferta oferta = 1;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to create a new offer with all required fields.
+// The reaseguradora_id links this offer to a reinsurer in Module 2 (catalogos).
+message CreateOfertaRequest {
+  // Human-readable offer number for business reference.
+  string numero_oferta = 1;
+  // Reference to the reinsurer from Module 2 (catalogos).
+  string reaseguradora_id = 2;
+  // Type of insurance coverage.
+  string tipo_seguro = 3;
+  // Total insured sum for the offer.
+  double suma_asegurada = 4;
+  // Premium amount for the offer.
+  double prima = 5;
+  // Currency code for monetary values.
+  string moneda = 6;
+  // Detailed description of the offer.
+  string descripcion = 7;
+  // Name or identifier of the requesting party.
+  string solicitante = 8;
+  // Coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 9;
+  // Coverage end date.
+  facultativo.common.Timestamp fecha_fin = 10;
+}
+
+// Request to update an existing offer. Only mutable fields are included.
+// The offer ID identifies which offer to update; remaining fields contain
+// the new values. Default/zero values indicate no change for that field.
+message UpdateOfertaRequest {
+  // Unique identifier of the offer to update.
+  string oferta_id = 1;
+  // New status for the offer.
+  string estado = 2;
+  // Updated insured sum.
+  double suma_asegurada = 3;
+  // Updated premium amount.
+  double prima = 4;
+  // Updated description.
+  string descripcion = 5;
+  // Updated coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 6;
+  // Updated coverage end date.
+  facultativo.common.Timestamp fecha_fin = 7;
+}
+
+// Request to delete an offer by its unique identifier.
+message DeleteOfertaRequest {
+  // Unique identifier of the offer to delete.
+  string oferta_id = 1;
+}
+
+// Response for the DeleteOferta RPC, containing only the operation status.
+message DeleteOfertaResponse {
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request to evaluate an offer by performing risk assessment.
+message EvaluateOfertaRequest {
+  // Unique identifier of the offer to evaluate.
+  string oferta_id = 1;
+}
+
+// Response for the EvaluateOferta RPC, containing the evaluated offer,
+// assessment result, and detailed evaluation notes.
+message EvaluateOfertaResponse {
+  // The offer entity after evaluation (may include updated estado).
+  Oferta oferta = 1;
+  // Summary result of the evaluation (e.g., "aprobada", "rechazada", "requiere_revision").
+  string evaluation_result = 2;
+  // Detailed notes from the evaluation process.
+  string evaluation_notes = 3;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 4;
+}
+
+// Request to search offers using a query string and optional filters.
+// Supports pagination for large result sets.
+message SearchOfertasRequest {
+  // Free-text search query matching offer fields.
+  string query = 1;
+  // Optional filter by offer status.
+  string estado = 2;
+  // Optional filter by insurance type.
+  string tipo_seguro = 3;
+  // Optional filter by reinsurer ID (Module 2 catalogos reference).
+  string reaseguradora_id = 4;
+  // Pagination parameters for search results.
+  facultativo.common.PaginationRequest pagination = 5;
+}
+
+// ============================================================================
+// Poliza Messages — Policy Entity and Request/Response Types
+// ============================================================================
+
+// Poliza represents an insurance policy in the facultativo reinsurance system.
+// Policies are issued from approved offers and represent active insurance contracts.
+// Each policy links to an offer (oferta_id), a reinsurer (reaseguradora_id from
+// Module 2 catalogos), and includes a tariff rate (tarifa from Module 6 tarifas).
+// PolizaService was the highest-density service in the original Java codebase,
+// requiring comprehensive input sanitization at the application layer.
+message Poliza {
+  // Unique identifier for the policy.
+  string id = 1;
+  // Human-readable policy number for business reference.
+  string numero_poliza = 2;
+  // Reference to the originating offer.
+  string oferta_id = 3;
+  // Reference to the reinsurer from Module 2 (catalogos) ReaseguradoraService.
+  string reaseguradora_id = 4;
+  // Type of insurance coverage (e.g., vida, daños, salud).
+  string tipo_seguro = 5;
+  // Current status of the policy (e.g., activa, cancelada, vencida, suspendida).
+  string estado = 6;
+  // Total insured sum (suma asegurada) for the policy.
+  double suma_asegurada = 7;
+  // Premium amount for the policy.
+  double prima = 8;
+  // Tariff rate applied to the policy, obtained from Module 6 (tarifas).
+  double tarifa = 9;
+  // Currency code for monetary values (e.g., MXN, USD).
+  string moneda = 10;
+  // Name or identifier of the insured party.
+  string asegurado = 11;
+  // Name or identifier of the beneficiary.
+  string beneficiario = 12;
+  // Detailed description of the policy terms and conditions.
+  string descripcion = 13;
+  // Date when the policy was officially issued.
+  facultativo.common.Timestamp fecha_emision = 14;
+  // Coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 15;
+  // Coverage end date.
+  facultativo.common.Timestamp fecha_fin = 16;
+  // Timestamp when the policy record was created.
+  facultativo.common.Timestamp created_at = 17;
+  // Timestamp when the policy record was last updated.
+  facultativo.common.Timestamp updated_at = 18;
+}
+
+// Request to retrieve a paginated list of all policies.
+message GetPolizasRequest {
+  // Pagination parameters for the policy list.
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response containing a paginated list of policies.
+message GetPolizasResponse {
+  // List of policies matching the request criteria.
+  repeated Poliza polizas = 1;
+  // Pagination metadata for the response.
+  facultativo.common.PaginationResponse pagination = 2;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to retrieve a single policy by its unique identifier.
+message GetPolizaByIdRequest {
+  // Unique identifier of the policy to retrieve.
+  string poliza_id = 1;
+}
+
+// Response containing a single policy and operation status.
+// Used as the response type for GetPolizaById, CreatePoliza, and UpdatePoliza RPCs.
+message PolizaResponse {
+  // The requested or modified policy entity.
+  Poliza poliza = 1;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to create a new policy with all required fields.
+// The oferta_id links this policy to an approved offer, and reaseguradora_id
+// links to a reinsurer in Module 2 (catalogos).
+message CreatePolizaRequest {
+  // Human-readable policy number for business reference.
+  string numero_poliza = 1;
+  // Reference to the originating offer.
+  string oferta_id = 2;
+  // Reference to the reinsurer from Module 2 (catalogos).
+  string reaseguradora_id = 3;
+  // Type of insurance coverage.
+  string tipo_seguro = 4;
+  // Total insured sum for the policy.
+  double suma_asegurada = 5;
+  // Currency code for monetary values.
+  string moneda = 6;
+  // Name or identifier of the insured party.
+  string asegurado = 7;
+  // Name or identifier of the beneficiary.
+  string beneficiario = 8;
+  // Detailed description of the policy.
+  string descripcion = 9;
+  // Coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 10;
+  // Coverage end date.
+  facultativo.common.Timestamp fecha_fin = 11;
+}
+
+// Request to update an existing policy. Only mutable fields are included.
+// The policy ID identifies which policy to update; remaining fields contain
+// the new values. Default/zero values indicate no change for that field.
+message UpdatePolizaRequest {
+  // Unique identifier of the policy to update.
+  string poliza_id = 1;
+  // New status for the policy.
+  string estado = 2;
+  // Updated insured sum.
+  double suma_asegurada = 3;
+  // Updated premium amount.
+  double prima = 4;
+  // Updated tariff rate (from Module 6 tarifas recalculation).
+  double tarifa = 5;
+  // Updated description.
+  string descripcion = 6;
+  // Updated coverage start date.
+  facultativo.common.Timestamp fecha_inicio = 7;
+  // Updated coverage end date.
+  facultativo.common.Timestamp fecha_fin = 8;
+}
+
+// Request to delete a policy by its unique identifier.
+message DeletePolizaRequest {
+  // Unique identifier of the policy to delete.
+  string poliza_id = 1;
+}
+
+// Response for the DeletePoliza RPC, containing only the operation status.
+message DeletePolizaResponse {
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request to evaluate a policy by performing risk assessment and premium calculation.
+message EvaluatePolizaRequest {
+  // Unique identifier of the policy to evaluate.
+  string poliza_id = 1;
+}
+
+// Response for the EvaluatePoliza RPC, containing the evaluated policy,
+// assessment result, calculated premium and tariff, and evaluation notes.
+// This RPC triggers cross-module calls to Module 6 (tarifas) for tariff
+// calculation during the evaluation process.
+message EvaluatePolizaResponse {
+  // The policy entity after evaluation (may include updated fields).
+  Poliza poliza = 1;
+  // Summary result of the evaluation (e.g., "aprobada", "rechazada", "requiere_revision").
+  string evaluation_result = 2;
+  // Premium amount calculated during evaluation.
+  double calculated_premium = 3;
+  // Tariff rate calculated by Module 6 (tarifas) during evaluation.
+  double calculated_tarifa = 4;
+  // Detailed notes from the evaluation process.
+  string evaluation_notes = 5;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 6;
+}
+
+// Request to calculate the premium for a policy based on insured sum and
+// insurance type. Triggers cross-module calls to Module 6 (tarifas).
+message CalculatePremiumRequest {
+  // Unique identifier of the policy for premium calculation.
+  string poliza_id = 1;
+  // Insured sum to use for premium calculation.
+  double suma_asegurada = 2;
+  // Insurance type to use for tariff lookup.
+  string tipo_seguro = 3;
+}
+
+// Response for the CalculatePolizaPremium RPC, containing the calculated
+// premium, applied tariff, and calculation details.
+message CalculatePremiumResponse {
+  // Calculated premium amount.
+  double premium = 1;
+  // Tariff rate applied in the calculation (from Module 6 tarifas).
+  double tarifa = 2;
+  // Human-readable details of the calculation methodology and parameters.
+  string calculation_details = 3;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 4;
+}
+
+// Request to retrieve the complete audit history for a policy.
+message GetPolizaHistoryRequest {
+  // Unique identifier of the policy whose history is requested.
+  string poliza_id = 1;
+}
+
+// PolizaHistoryEntry represents a single audit trail entry for a policy,
+// capturing every modification, status change, and evaluation performed.
+message PolizaHistoryEntry {
+  // Unique identifier for the history entry.
+  string id = 1;
+  // Reference to the policy this entry belongs to.
+  string poliza_id = 2;
+  // Action performed (e.g., "created", "updated", "evaluated", "deleted").
+  string action = 3;
+  // Detailed description of the changes made.
+  string details = 4;
+  // Identifier of the user or system that performed the action.
+  string performed_by = 5;
+  // Timestamp when the action was performed.
+  facultativo.common.Timestamp timestamp = 6;
+}
+
+// Response for the GetPolizaHistory RPC, containing the ordered list of
+// audit history entries for the requested policy.
+message GetPolizaHistoryResponse {
+  // Ordered list of history entries for the policy (newest first).
+  repeated PolizaHistoryEntry history = 1;
+  // Operation status indicator.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to search policies using a query string and optional filters.
+// Supports pagination for large result sets.
+message SearchPolizasRequest {
+  // Free-text search query matching policy fields.
+  string query = 1;
+  // Optional filter by policy status.
+  string estado = 2;
+  // Optional filter by insurance type.
+  string tipo_seguro = 3;
+  // Optional filter by reinsurer ID (Module 2 catalogos reference).
+  string reaseguradora_id = 4;
+  // Pagination parameters for search results.
+  facultativo.common.PaginationRequest pagination = 5;
+}
