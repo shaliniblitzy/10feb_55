@@ -1,0 +1,209 @@
+# =============================================================================
+# GAE-GNP Facultativo — Production Environment Configuration
+# =============================================================================
+# This file contains production-specific configuration overrides for the
+# Flask/gRPC microservice platform deployed on Google Cloud Platform (GAE).
+#
+# Loaded by: app/config.py -> ProductionConfig (when FLASK_ENV=production)
+# Extends:   config/application.yml (base configuration)
+#
+# SECURITY NOTICE: This file MUST NOT contain any hardcoded secrets, tokens,
+# or credentials. All sensitive values use ${ENV_VAR} placeholder syntax and
+# are resolved at runtime via GCP Secret Manager or environment variables.
+#
+# Resolution order: YAML -> Environment Variables -> GCP Secret Manager
+# =============================================================================
+
+# ----------------------------------------------------------------------------
+# Server Configuration
+# ----------------------------------------------------------------------------
+# Production server ports matching Google App Engine defaults.
+# GAE routes external HTTP traffic to port 8080 by default.
+# gRPC runs on the standard port 50051 for inter-service communication.
+server:
+  flask_port: 8080                      # GAE standard HTTP port
+  grpc_port: 50051                      # Standard gRPC port for inter-service calls
+  host: "0.0.0.0"                       # Bind to all interfaces for GAE networking
+
+# ----------------------------------------------------------------------------
+# Flask Production Settings
+# ----------------------------------------------------------------------------
+# Production Flask configuration with all debug/testing features disabled.
+# The secret_key MUST be resolved from GCP Secret Manager or environment
+# variable — never hardcoded in any configuration file.
+flask:
+  env: production                       # Production environment identifier
+  debug: false                          # ALWAYS disabled in production
+  testing: false                        # ALWAYS disabled in production
+  secret_key: "${FLASK_SECRET_KEY}"     # Resolved from Secret Manager or env var
+
+# ----------------------------------------------------------------------------
+# Apigee API Gateway Configuration
+# ----------------------------------------------------------------------------
+# Production Apigee settings for external request authentication.
+# Token validation is ALWAYS enabled in production to ensure all external
+# requests through the Apigee API Gateway are properly authenticated.
+# The token and gateway_url are resolved from GCP Secret Manager or env vars.
+apigee:
+  token: "${APIGEE_TOKEN}"             # Resolved from GCP Secret Manager or env var
+  gateway_url: "${APIGEE_GATEWAY_URL}" # Production Apigee gateway endpoint
+  validate_tokens: true                 # ALWAYS validate tokens in production
+
+# ----------------------------------------------------------------------------
+# Module Configuration
+# ----------------------------------------------------------------------------
+# All six modules from the original Java microservice platform are enabled
+# in production. Each module is registered as a Flask blueprint.
+#
+# External modules (administrador, procesos, sincronizador_archivos) serve
+# HTTP endpoints through the Apigee API Gateway.
+# Internal modules (catalogos, reportes, tarifas) are accessed only via gRPC.
+modules:
+  # Module 1: administrador — User authentication, role management, user admin
+  # External: Exposed via Apigee API Gateway for login, role, and user operations
+  administrador:
+    enabled: true
+    url_prefix: "/api/administrador"
+    external: true
+
+  # Module 2: catalogos — Reinsurer catalog management
+  # Internal: Accessed via gRPC by procesos (Module 3) and tarifas (Module 6)
+  catalogos:
+    enabled: true
+    url_prefix: "/api/catalogos"
+    external: false
+
+  # Module 3: procesos — Offer management and policy processing
+  # External: Exposed via Apigee for offer and policy operations
+  # Highest complexity module — calls catalogos and tarifas via gRPC
+  procesos:
+    enabled: true
+    url_prefix: "/api/procesos"
+    external: true
+
+  # Module 4: reportes — User file and report management
+  # Internal: Accessed via gRPC by administrador (Module 1) and
+  # sincronizador_archivos (Module 5)
+  reportes:
+    enabled: true
+    url_prefix: "/api/reportes"
+    external: false
+
+  # Module 5: sincronizador_archivos — Configuration-driven file synchronization
+  # External: Exposed via Apigee for file sync trigger operations
+  # Note: URL uses hyphen (/api/sincronizador-archivos) while Python module
+  # uses underscore (sincronizador_archivos)
+  sincronizador_archivos:
+    enabled: true
+    url_prefix: "/api/sincronizador-archivos"
+    external: true
+
+  # Module 6: tarifas — Tariff calculation and rate management
+  # Internal: Accessed via gRPC by procesos (Module 3) for tariff calculations
+  tarifas:
+    enabled: true
+    url_prefix: "/api/tarifas"
+    external: false
+
+# ----------------------------------------------------------------------------
+# Service Registry — Production gRPC Discovery
+# ----------------------------------------------------------------------------
+# Defines gRPC connection details for inter-service communication in
+# production. Host addresses use environment variable placeholders for
+# GCP deployment flexibility — resolved at runtime by the orchestration
+# layer (GAE, GKE, or Cloud Run).
+#
+# Documented inter-module communication flows:
+#   - procesos (Module 3) -> catalogos (Module 2) for catalog lookups
+#   - administrador (Module 1) -> reportes (Module 4) for report generation
+#   - procesos (Module 3) -> tarifas (Module 6) for tariff calculations
+#   - sincronizador_archivos (Module 5) -> reportes (Module 4) for file sync
+services:
+  # Module 2: catalogos — called by procesos (Module 3) and tarifas (Module 6)
+  catalogos:
+    grpc_host: "${CATALOGOS_GRPC_HOST}"
+    grpc_port: 50051
+
+  # Module 4: reportes — called by administrador (Module 1) and sincronizador_archivos (Module 5)
+  reportes:
+    grpc_host: "${REPORTES_GRPC_HOST}"
+    grpc_port: 50051
+
+  # Module 6: tarifas — called by procesos (Module 3) for tariff calculations
+  tarifas:
+    grpc_host: "${TARIFAS_GRPC_HOST}"
+    grpc_port: 50051
+
+# ----------------------------------------------------------------------------
+# Logging Configuration — Production
+# ----------------------------------------------------------------------------
+# Production logging uses less verbose levels than development to reduce
+# log volume and cost. WARNING is the default level, with ERROR for noisy
+# subsystems. The auth module stays at INFO for security audit trail
+# (login attempts, token validation failures, authorization decisions).
+#
+# Replaces the dual Logback Classic 1.5.18 + Log4j API 2.25.0 logging stack
+# from the original Java system with Python's unified logging module.
+logging:
+  level: WARNING                        # Production default log level
+  config_file: "config/logging.yml"     # Path to detailed logging configuration
+  modules:
+    app: INFO                           # Application core — INFO for operational visibility
+    app.blueprints: WARNING             # Blueprint modules — WARNING to reduce noise
+    app.grpc_server: WARNING            # gRPC server infrastructure — WARNING only
+    app.auth: INFO                      # Auth module — INFO for security audit trail
+    grpc: ERROR                         # Suppress gRPC internal logging in production
+    werkzeug: ERROR                     # Suppress Werkzeug request logging in production
+
+# ----------------------------------------------------------------------------
+# Google Cloud Platform Configuration — Production
+# ----------------------------------------------------------------------------
+# In production, GCP Secret Manager is ENABLED as the primary source for
+# resolving sensitive configuration values (tokens, keys, credentials).
+# The secrets mapping defines which Secret Manager secret names correspond
+# to which application configuration keys.
+#
+# Resolution: app/config.py -> resolve_secrets() reads gcp.secrets mapping
+# and fetches values from Secret Manager using the google-cloud-secret-manager
+# client library (v2.26.0).
+gcp:
+  project_id: "${GCP_PROJECT_ID}"       # GCP project identifier (from env var)
+  secret_manager_enabled: true          # ENABLED in production for credential resolution
+  secrets:
+    apigee_token: "apigee-token"        # Secret Manager secret name for Apigee token
+    flask_secret_key: "flask-secret-key" # Secret Manager secret name for Flask secret key
+
+# ----------------------------------------------------------------------------
+# gRPC Server and Client Configuration — Production
+# ----------------------------------------------------------------------------
+# Production gRPC settings with reflection DISABLED for security (prevents
+# service enumeration by unauthorized clients). Worker count and message
+# limits are tuned for production workloads.
+#
+# Replaces both gRPC-Netty Shaded transport (Modules 1, 2, 3, 5, 6) and
+# Direct Netty transport (Module 4) with unified grpcio stack.
+grpc:
+  server:
+    port: 50051                         # gRPC server listen port
+    max_workers: 10                     # Thread pool size for gRPC server
+    max_message_length: 4194304         # 4MB max message size (gRPC default)
+    reflection_enabled: false           # DISABLED in production for security
+  client:
+    timeout: 30                         # Default gRPC client call timeout in seconds
+    retry_enabled: true                 # Enable automatic retry for transient failures
+    max_retries: 3                      # Maximum number of retry attempts per call
+
+# ----------------------------------------------------------------------------
+# Gunicorn WSGI Server Configuration Hints — Production
+# ----------------------------------------------------------------------------
+# These values are referenced by gunicorn.conf.py and app/config.py for
+# production WSGI server tuning. They may also be overridden via environment
+# variables at deployment time.
+#
+# Gunicorn replaces the embedded Apache Tomcat 10.1.41 servlet container
+# from the original Java system as the production HTTP server.
+gunicorn:
+  workers: 4                            # Number of Gunicorn worker processes
+  timeout: 120                          # Worker timeout in seconds
+  graceful_timeout: 30                  # Graceful shutdown timeout in seconds
+  log_level: "warning"                  # Gunicorn log level (matches production logging)
