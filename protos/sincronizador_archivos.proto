@@ -1,0 +1,369 @@
+// Protocol Buffer definition for Module 5 (sincronizador-archivos) gRPC services.
+//
+// Defines the SincronizadorService interface for configuration-driven file
+// synchronization operations. Module 5 is EXTERNAL-facing (HTTP via Apigee
+// API Gateway at /api/sincronizador-archivos) and also accepts internal gRPC
+// calls from other modules.
+//
+// Inter-module communication:
+//   Module 5 (sincronizador_archivos) -> Module 4 (reportes):
+//     Sync service calls ArchivosUsuarioService via gRPC client stub
+//     for file operations during synchronization.
+//
+// The original Java system had dual-environment secret scope for this module
+// (tokens in both application.yml and application-test.yml). The ambiente
+// field in SyncConfig preserves environment-aware configuration behavior.
+//
+// Replaces the Java Spring-based sincronizador-archivos microservice gRPC
+// interface. Compiled using grpcio-tools to generate Python stubs:
+//   python -m grpc_tools.protoc -I./protos \
+//     --python_out=./protos --grpc_python_out=./protos \
+//     protos/sincronizador_archivos.proto
+
+syntax = "proto3";
+
+package facultativo.sincronizador;
+
+// Disable generic service generation; grpcio-tools generates concrete stubs.
+option py_generic_services = false;
+
+// Import shared message types from the common proto definitions.
+// Provides: Timestamp, StatusResponse, PaginationRequest, PaginationResponse
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// SincronizadorService — File synchronization gRPC service interface.
+//
+// Provides RPC methods for managing and executing configuration-driven file
+// synchronization operations. This service supports:
+//   - Triggering file synchronization (manual or forced)
+//   - Monitoring synchronization status and progress
+//   - Retrieving synchronization execution history
+//   - Managing synchronization configurations
+//   - Cancelling in-progress synchronization operations
+//
+// External access: Exposed via Apigee API Gateway at /api/sincronizador-archivos
+// Internal access: Available via gRPC for inter-service communication
+// ---------------------------------------------------------------------------
+service SincronizadorService {
+  // SyncFiles initiates file synchronization for a given configuration.
+  // Processes specified files (or all files matching the configuration pattern)
+  // and returns a summary of the synchronization results including per-file
+  // error details. Calls Module 4 (reportes/ArchivosUsuarioService) for
+  // underlying file operations.
+  rpc SyncFiles(SyncFilesRequest) returns (SyncFilesResponse);
+
+  // GetSyncStatus retrieves the current status and progress of an active
+  // or completed synchronization operation identified by its sync_id.
+  rpc GetSyncStatus(GetSyncStatusRequest) returns (SyncStatusResponse);
+
+  // GetSyncHistory returns a paginated list of past synchronization executions
+  // for a given configuration, enabling audit and troubleshooting.
+  rpc GetSyncHistory(GetSyncHistoryRequest) returns (GetSyncHistoryResponse);
+
+  // TriggerSync starts a new synchronization run for the specified configuration.
+  // Supports forced re-synchronization to override incremental sync logic.
+  rpc TriggerSync(TriggerSyncRequest) returns (TriggerSyncResponse);
+
+  // GetSyncConfig retrieves the full synchronization configuration details
+  // for a given configuration identifier.
+  rpc GetSyncConfig(GetSyncConfigRequest) returns (SyncConfigResponse);
+
+  // UpdateSyncConfig modifies an existing synchronization configuration.
+  // Supports partial updates to configuration parameters including source,
+  // destination, file patterns, frequency, and environment settings.
+  rpc UpdateSyncConfig(UpdateSyncConfigRequest) returns (SyncConfigResponse);
+
+  // CancelSync aborts an in-progress synchronization operation. Files already
+  // synchronized before cancellation are not rolled back.
+  rpc CancelSync(CancelSyncRequest) returns (CancelSyncResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Configuration Messages
+// ---------------------------------------------------------------------------
+
+// SyncConfig represents a complete file synchronization configuration entry.
+// Each configuration defines the source, destination, file matching pattern,
+// synchronization frequency, and environment-specific settings.
+//
+// The 'ambiente' field supports the dual-environment scope from the original
+// Java system where Module 5 maintained separate configurations for different
+// deployment environments (development, test, production).
+message SyncConfig {
+  // Unique identifier for this synchronization configuration.
+  string id = 1;
+
+  // Human-readable name for this synchronization configuration.
+  string nombre = 2;
+
+  // Source location path or URI from which files are read.
+  string origen = 3;
+
+  // Destination location path or URI to which files are written.
+  string destino = 4;
+
+  // File matching pattern (glob or regex) to filter which files are synchronized.
+  string patron_archivos = 5;
+
+  // Synchronization frequency specification (e.g., "daily", "hourly", cron expression).
+  string frecuencia = 6;
+
+  // Whether this synchronization configuration is currently active.
+  bool activo = 7;
+
+  // Deployment environment identifier (e.g., "development", "test", "production").
+  // Supports the dual-environment secret scope from the original Java system
+  // where tokens were maintained in both application.yml and application-test.yml.
+  string ambiente = 8;
+
+  // Additional key-value parameters for environment-specific or custom settings.
+  map<string, string> parametros = 9;
+
+  // Timestamp when this configuration was originally created.
+  facultativo.common.Timestamp created_at = 10;
+
+  // Timestamp when this configuration was last modified.
+  facultativo.common.Timestamp updated_at = 11;
+}
+
+// ---------------------------------------------------------------------------
+// Synchronization Operation Messages
+// ---------------------------------------------------------------------------
+
+// SyncFilesRequest initiates a file synchronization operation.
+message SyncFilesRequest {
+  // Identifier of the synchronization configuration to execute.
+  string config_id = 1;
+
+  // Optional list of specific file identifiers to synchronize.
+  // When empty, all files matching the configuration pattern are processed.
+  repeated string archivo_ids = 2;
+
+  // When true, forces re-synchronization of all files regardless of
+  // whether they have been previously synchronized or are unchanged.
+  bool force = 3;
+}
+
+// SyncFilesResponse contains the results of a file synchronization operation.
+message SyncFilesResponse {
+  // Unique identifier assigned to this synchronization execution.
+  string sync_id = 1;
+
+  // Total number of files that were processed during synchronization.
+  int32 archivos_procesados = 2;
+
+  // Number of files that were successfully synchronized.
+  int32 archivos_exitosos = 3;
+
+  // Number of files that failed to synchronize.
+  int32 archivos_fallidos = 4;
+
+  // Detailed error information for each file that failed synchronization.
+  repeated SyncError errores = 5;
+
+  // Overall operation status including success indicator and message.
+  facultativo.common.StatusResponse status = 6;
+}
+
+// SyncError captures detailed error information for a single file that
+// failed during a synchronization operation.
+message SyncError {
+  // Identifier of the file that failed to synchronize.
+  string archivo_id = 1;
+
+  // Display name of the file that failed.
+  string nombre_archivo = 2;
+
+  // Human-readable description of the error that occurred.
+  string error_message = 3;
+
+  // Machine-readable error code for programmatic error handling.
+  string error_code = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Status and Monitoring Messages
+// ---------------------------------------------------------------------------
+
+// GetSyncStatusRequest queries the current status of a synchronization operation.
+message GetSyncStatusRequest {
+  // Unique identifier of the synchronization execution to query.
+  string sync_id = 1;
+}
+
+// SyncStatusResponse provides real-time status and progress information
+// for a synchronization operation.
+message SyncStatusResponse {
+  // Unique identifier of the synchronization execution.
+  string sync_id = 1;
+
+  // Current state of the synchronization operation.
+  // Valid values: "pending", "in_progress", "completed", "failed", "cancelled"
+  string estado = 2;
+
+  // Synchronization progress as a percentage (0-100).
+  int32 progreso = 3;
+
+  // Total number of files scheduled for synchronization.
+  int32 total_archivos = 4;
+
+  // Number of files that have been processed so far.
+  int32 archivos_completados = 5;
+
+  // Timestamp when the synchronization operation started.
+  facultativo.common.Timestamp inicio = 6;
+
+  // Timestamp when the synchronization operation completed (if finished).
+  // Will have zero values if the operation is still in progress.
+  facultativo.common.Timestamp fin = 7;
+
+  // Overall operation status including success indicator and message.
+  facultativo.common.StatusResponse status = 8;
+}
+
+// ---------------------------------------------------------------------------
+// History Messages
+// ---------------------------------------------------------------------------
+
+// GetSyncHistoryRequest retrieves paginated synchronization execution history
+// for a given configuration.
+message GetSyncHistoryRequest {
+  // Identifier of the synchronization configuration whose history is requested.
+  string config_id = 1;
+
+  // Pagination parameters for controlling the result set size and offset.
+  facultativo.common.PaginationRequest pagination = 2;
+}
+
+// SyncHistoryEntry represents a single historical synchronization execution record.
+message SyncHistoryEntry {
+  // Unique identifier of the synchronization execution.
+  string sync_id = 1;
+
+  // Identifier of the synchronization configuration that was executed.
+  string config_id = 2;
+
+  // Final state of the synchronization operation.
+  // Valid values: "completed", "failed", "cancelled"
+  string estado = 3;
+
+  // Total number of files that were processed.
+  int32 archivos_procesados = 4;
+
+  // Number of files that were successfully synchronized.
+  int32 archivos_exitosos = 5;
+
+  // Number of files that failed to synchronize.
+  int32 archivos_fallidos = 6;
+
+  // Timestamp when the synchronization operation started.
+  facultativo.common.Timestamp inicio = 7;
+
+  // Timestamp when the synchronization operation completed.
+  facultativo.common.Timestamp fin = 8;
+}
+
+// GetSyncHistoryResponse contains a paginated list of synchronization
+// execution history entries.
+message GetSyncHistoryResponse {
+  // List of historical synchronization execution records.
+  repeated SyncHistoryEntry history = 1;
+
+  // Pagination metadata for navigating through the full result set.
+  facultativo.common.PaginationResponse pagination = 2;
+
+  // Overall operation status including success indicator and message.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Trigger and Control Messages
+// ---------------------------------------------------------------------------
+
+// TriggerSyncRequest starts a new synchronization run for a configuration.
+message TriggerSyncRequest {
+  // Identifier of the synchronization configuration to trigger.
+  string config_id = 1;
+
+  // When true, forces re-synchronization regardless of previous sync state.
+  bool force = 2;
+}
+
+// TriggerSyncResponse confirms that a synchronization operation has been initiated.
+message TriggerSyncResponse {
+  // Unique identifier assigned to the newly triggered synchronization execution.
+  string sync_id = 1;
+
+  // Initial state of the triggered synchronization (typically "pending" or "in_progress").
+  string estado = 2;
+
+  // Overall operation status including success indicator and message.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Configuration Management Messages
+// ---------------------------------------------------------------------------
+
+// GetSyncConfigRequest retrieves a synchronization configuration by its identifier.
+message GetSyncConfigRequest {
+  // Identifier of the synchronization configuration to retrieve.
+  string config_id = 1;
+}
+
+// SyncConfigResponse wraps a synchronization configuration with operation status.
+message SyncConfigResponse {
+  // The requested synchronization configuration details.
+  SyncConfig config = 1;
+
+  // Overall operation status including success indicator and message.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// UpdateSyncConfigRequest modifies an existing synchronization configuration.
+// All fields except config_id represent the updated values to apply.
+message UpdateSyncConfigRequest {
+  // Identifier of the synchronization configuration to update.
+  string config_id = 1;
+
+  // Updated human-readable name for this synchronization configuration.
+  string nombre = 2;
+
+  // Updated source location path or URI.
+  string origen = 3;
+
+  // Updated destination location path or URI.
+  string destino = 4;
+
+  // Updated file matching pattern for synchronization filtering.
+  string patron_archivos = 5;
+
+  // Updated synchronization frequency specification.
+  string frecuencia = 6;
+
+  // Updated active/inactive status.
+  bool activo = 7;
+
+  // Updated deployment environment identifier.
+  string ambiente = 8;
+
+  // Updated additional key-value parameters.
+  map<string, string> parametros = 9;
+}
+
+// ---------------------------------------------------------------------------
+// Cancellation Messages
+// ---------------------------------------------------------------------------
+
+// CancelSyncRequest requests cancellation of an in-progress synchronization.
+message CancelSyncRequest {
+  // Unique identifier of the synchronization execution to cancel.
+  string sync_id = 1;
+}
+
+// CancelSyncResponse confirms the result of a cancellation request.
+message CancelSyncResponse {
+  // Operation status indicating whether the cancellation was accepted.
+  facultativo.common.StatusResponse status = 1;
+}
