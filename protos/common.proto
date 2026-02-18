@@ -1,0 +1,168 @@
+// common.proto — Shared Message Types for the GAE-GNP Facultativo Platform
+//
+// This file contains shared Protocol Buffer message types used across all
+// module-specific proto definitions in the GAE-GNP Facultativo platform.
+// All six module proto files (administrador, catalogos, procesos, reportes,
+// sincronizador_archivos, tarifas) import this file as their root dependency.
+//
+// This file defines ONLY message types — no service definitions are included.
+// It serves as the foundational dependency for the entire gRPC API surface.
+
+syntax = "proto3";
+
+package facultativo.common;
+
+option java_multiple_files = true;
+option java_package = "mx.com.gnp.rvi.facultativo.common";
+option py_generic_services = false;
+
+// StatusResponse provides a generic response status for RPC operations.
+// Used by all 6 modules for standard CRUD operation responses, login/logout
+// acknowledgments, sync triggers, and other operations requiring a simple
+// success/failure indication with contextual information.
+message StatusResponse {
+  // Indicates whether the operation completed successfully.
+  bool success = 1;
+  // Human-readable description of the operation outcome.
+  string message = 2;
+  // Numeric status code for programmatic handling (e.g., 200, 400, 500).
+  int32 code = 3;
+  // Unique identifier for request tracing and correlation across services.
+  string request_id = 4;
+}
+
+// Timestamp represents a point in time as seconds and nanoseconds since
+// the Unix epoch (1970-01-01T00:00:00Z). This is a lightweight custom
+// timestamp type used across the platform for date/time fields.
+// Used by: administrador (login timestamps, user creation dates),
+// procesos (offer/policy dates), reportes (report generation dates),
+// sincronizador_archivos (sync timestamps).
+message Timestamp {
+  // Seconds since the Unix epoch.
+  int64 seconds = 1;
+  // Non-negative fractions of a second at nanosecond resolution.
+  int32 nanos = 2;
+}
+
+// PaginationRequest provides pagination parameters for list and search
+// operations across all modules.
+// Used by: administrador (ListUsuarios, SearchRoles), catalogos
+// (ListReaseguradoras, SearchReaseguradoras), procesos (ListOfertas,
+// ListPolizas), reportes (ListArchivos), tarifas (ListTarifas).
+message PaginationRequest {
+  // Zero-based page number to retrieve.
+  int32 page = 1;
+  // Maximum number of items per page.
+  int32 page_size = 2;
+  // Field name to sort results by (e.g., "created_at", "name").
+  string sort_by = 3;
+  // Sort direction: "asc" for ascending, "desc" for descending.
+  string sort_order = 4;
+}
+
+// PaginationResponse provides metadata about paginated result sets,
+// enabling clients to navigate through large collections.
+// Used by all modules that return paginated lists of resources.
+message PaginationResponse {
+  // Total number of items matching the query across all pages.
+  int32 total_count = 1;
+  // Current page number (zero-based).
+  int32 page = 2;
+  // Number of items per page.
+  int32 page_size = 3;
+  // Total number of pages available.
+  int32 total_pages = 4;
+  // Whether a next page of results exists.
+  bool has_next = 5;
+  // Whether a previous page of results exists.
+  bool has_previous = 6;
+}
+
+// ErrorDetail provides structured information about a specific validation
+// or processing error, typically associated with a particular field or
+// aspect of a request. Used within ErrorResponse for detailed error
+// reporting across all modules.
+message ErrorDetail {
+  // The field or parameter that caused the error (e.g., "username", "policy_id").
+  string field = 1;
+  // Machine-readable error code for programmatic handling (e.g., "REQUIRED", "INVALID_FORMAT").
+  string error_code = 2;
+  // Human-readable description of the error condition.
+  string description = 3;
+}
+
+// ErrorResponse provides a comprehensive error response structure for
+// failed RPC operations. Includes a top-level error code and message,
+// optional detailed per-field errors, and request tracing information.
+// Used by all modules for structured error handling and reporting.
+message ErrorResponse {
+  // HTTP-equivalent status code (e.g., 400, 404, 500).
+  int32 code = 1;
+  // High-level human-readable error message.
+  string message = 2;
+  // Zero or more detailed error entries for field-level validation failures.
+  repeated ErrorDetail details = 3;
+  // Unique identifier for request tracing and correlation.
+  string request_id = 4;
+  // Timestamp when the error occurred.
+  Timestamp timestamp = 5;
+}
+
+// Empty is used for RPC methods that require no request or response payload,
+// such as simple trigger operations or acknowledgments.
+message Empty {}
+
+// HealthCheckRequest is sent to query the health status of a specific service.
+// Used by all 6 modules for health checking (each module blueprint exposes
+// health check routes).
+message HealthCheckRequest {
+  // Name of the service to check (e.g., "administrador", "catalogos").
+  string service_name = 1;
+}
+
+// HealthCheckResponse provides the health status of a queried service,
+// including version information and uptime tracking.
+// Used by all 6 modules for service health monitoring and operational readiness.
+message HealthCheckResponse {
+  // Name of the service reporting its health status.
+  string service_name = 1;
+  // Current health status: "SERVING", "NOT_SERVING", or "UNKNOWN".
+  string status = 2;
+  // Deployed version of the service (e.g., "1.0.0").
+  string version = 3;
+  // Timestamp indicating when the service started serving.
+  Timestamp uptime_since = 4;
+}
+
+// KeyValuePair provides a flexible key-value structure for metadata,
+// configuration attributes, and other dynamic property storage.
+// Used by various modules for flexible attribute representation
+// and configuration metadata propagation.
+message KeyValuePair {
+  // The attribute name or key.
+  string key = 1;
+  // The attribute value.
+  string value = 2;
+}
+
+// UserContext carries authenticated user identity and authorization
+// information across inter-service gRPC calls. This enables downstream
+// services to enforce access control without re-authenticating the user.
+// Critical for cross-module communication flows:
+//   - Module 3 (procesos) -> Module 2 (catalogos): catalog lookups during offer processing
+//   - Module 1 (administrador) -> Module 4 (reportes): report generation requests
+//   - Module 3 (procesos) -> Module 6 (tarifas): tariff calculations during policy evaluation
+//   - Module 5 (sincronizador_archivos) -> Module 4 (reportes): file sync coordination
+// Replaces Spring Security context propagation from the original Java implementation.
+message UserContext {
+  // Unique identifier of the authenticated user.
+  string user_id = 1;
+  // Login username of the authenticated user.
+  string username = 2;
+  // List of role names assigned to the user for RBAC enforcement.
+  repeated string roles = 3;
+  // Active session identifier for session tracking and invalidation.
+  string session_id = 4;
+  // Name of the originating module (e.g., "administrador", "procesos").
+  string source_module = 5;
+}
