@@ -1,0 +1,28 @@
+# =============================================================================
+# requirements-dev.txt — Development and Testing Dependencies
+# =============================================================================
+# GAE-GNP Facultativo — Python/Flask rewrite of Java-based microservice platform.
+# This file lists development and testing dependencies that extend the production
+# requirements.txt. It replaces the test-scoped dependencies from the original
+# Java build.gradle files (specifically AssertJ 3.27.3 and Spring Test).
+#
+# All versions are pinned with == for deterministic, reproducible builds.
+#
+# To install:  pip install -r requirements-dev.txt
+# To verify:   pip check
+# =============================================================================
+
+# Include all production dependencies first
+-r requirements.txt
+
+# Testing framework — replaces JUnit + AssertJ from the Java project
+# pytest assertions replace AssertJ fluent API
+pytest==8.4.0
+
+# Test coverage reporting — replaces Gradle JaCoCo plugin
+# Generates coverage reports during test runs
+pytest-cov==6.1.0
+
+# Flask-specific test fixtures — replaces Spring Test framework
+# Provides Flask test client fixtures and helpers for endpoint testing
+pytest-flask==1.3.0
