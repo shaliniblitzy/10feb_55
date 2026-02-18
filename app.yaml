@@ -1,0 +1,113 @@
+# =============================================================================
+# GAE-GNP Facultativo — Google App Engine Deployment Descriptor
+# =============================================================================
+#
+# This file configures the unified Python/Flask application for deployment on
+# Google App Engine (GAE) standard environment. It replaces the per-module
+# Java WAR/JAR deployments from the original six-microservice architecture
+# (administrador, catalogos, procesos, reportes, sincronizador-archivos,
+# tarifas) with a single GAE deployment.
+#
+# The application runs both:
+#   - Flask/Gunicorn (HTTP on port 8080) for REST API traffic via Apigee
+#   - gRPC server (on port 50051) for inter-service communication
+#
+# SECURITY NOTE: No secrets, tokens, or credentials should appear in this
+# file. Sensitive values (APIGEE_TOKEN, GCP_PROJECT_ID) are resolved at
+# runtime via GCP Secret Manager or runtime configuration.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Runtime Configuration
+# ---------------------------------------------------------------------------
+# Specifies the Python 3.13 runtime on Google App Engine standard environment.
+# This corresponds to the Python 3.13.12 version used in development.
+runtime: python313
+
+# ---------------------------------------------------------------------------
+# Instance Class
+# ---------------------------------------------------------------------------
+# F2 instances provide 256 MB memory and 1.2 GHz CPU, suitable for serving
+# HTTP requests via Flask/Gunicorn and running the concurrent gRPC server
+# thread for inter-service communication.
+instance_class: F2
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+# Uses Gunicorn 25.1.0 as the production WSGI server (replacing embedded
+# Apache Tomcat 10.1.41 from the original Java system). The application
+# factory pattern create_app() initializes Flask with all six module
+# blueprints, authentication middleware, and the gRPC server lifecycle.
+entrypoint: gunicorn --config gunicorn.conf.py "app:create_app()"
+
+# ---------------------------------------------------------------------------
+# Environment Variables
+# ---------------------------------------------------------------------------
+# Non-sensitive environment variables for the GAE runtime. These configure
+# the Flask application, gRPC server, and GCP integration.
+#
+# IMPORTANT: APIGEE_TOKEN and GCP_PROJECT_ID are NOT set here.
+# They must be provided via GCP Secret Manager or runtime configuration
+# to prevent credential exposure in version control.
+env_variables:
+  # Flask environment mode — always "production" on GAE
+  FLASK_ENV: "production"
+
+  # HTTP server port — 8080 is the GAE standard port for incoming traffic
+  # from the Apigee API Gateway
+  FLASK_PORT: "8080"
+
+  # gRPC server port for inter-service communication between modules
+  # (e.g., procesos -> catalogos, administrador -> reportes)
+  GRPC_PORT: "50051"
+
+  # Enable GCP Secret Manager for secure credential resolution in production.
+  # When "true", the application retrieves APIGEE_TOKEN and other secrets
+  # from Secret Manager instead of environment variables.
+  SECRET_MANAGER_ENABLED: "true"
+
+# ---------------------------------------------------------------------------
+# Automatic Scaling
+# ---------------------------------------------------------------------------
+# Configures GAE automatic scaling to balance availability and cost.
+# At least one instance is always warm to avoid cold-start latency for
+# incoming Apigee-routed requests.
+automatic_scaling:
+  # Minimum number of instances to keep running at all times.
+  # Ensures zero cold-start latency for the first request.
+  min_instances: 1
+
+  # Maximum number of instances for cost management.
+  # GAE scales up to this limit based on traffic demand.
+  max_instances: 10
+
+  # Target CPU utilization threshold for scaling decisions.
+  # At 65% CPU, GAE begins spinning up additional instances.
+  target_cpu_utilization: 0.65
+
+# ---------------------------------------------------------------------------
+# Request Handlers
+# ---------------------------------------------------------------------------
+# Default handler routing all incoming HTTP requests to the Flask/Gunicorn
+# WSGI application. In the Python 3 standard environment, "script: auto"
+# delegates request handling to the entrypoint command defined above.
+handlers:
+  - url: /.*
+    script: auto
+
+# ---------------------------------------------------------------------------
+# Network and VPC Configuration
+# ---------------------------------------------------------------------------
+# GAE manages networking by default. For production deployments requiring
+# private connectivity to internal GCP services (Cloud SQL, Memorystore,
+# or other VPC-hosted resources), a Serverless VPC Access connector can be
+# configured as follows:
+#
+# vpc_access_connector:
+#   name: projects/PROJECT_ID/locations/REGION/connectors/CONNECTOR_NAME
+#   egress_setting: private-ranges-only
+#
+# For gRPC inter-service communication within the same GAE application,
+# services communicate via localhost, so no VPC connector is required
+# for internal module-to-module calls.
