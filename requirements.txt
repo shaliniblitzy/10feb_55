@@ -1,0 +1,50 @@
+# =============================================================================
+# requirements.txt — Pinned Production Dependencies
+# =============================================================================
+# GAE-GNP Facultativo — Python/Flask rewrite of Java-based microservice platform.
+# This file lists all pinned production dependencies, replacing the dependency
+# declarations from all six original Java build.gradle files.
+#
+# All versions are pinned with == for deterministic, reproducible builds.
+# Transitive dependencies (Werkzeug, Jinja2, MarkupSafe, etc.) are resolved
+# automatically by pip and are NOT listed here.
+#
+# To install:  pip install -r requirements.txt
+# To verify:   pip check
+#
+# For development/testing dependencies, see requirements-dev.txt.
+# =============================================================================
+
+# Core web framework — replaces Spring Framework 6.2.7 + Embedded Tomcat 10.1.41
+Flask==3.1.2
+
+# gRPC framework for inter-service communication — replaces gRPC-Netty Shaded
+# 1.70.0 (Modules 1,2,3,5,6) and Direct Netty 4.1.121.Final (Module 4),
+# unifying the transport layer and eliminating Module 4 architectural divergence
+grpcio==1.78.0
+
+# Protocol Buffer compiler for Python stubs — replaces Gradle protobuf plugin
+grpcio-tools==1.78.0
+
+# Production WSGI server for GCP deployment — replaces Embedded Apache Tomcat 10.1.41
+gunicorn==25.1.0
+
+# YAML configuration file parsing — replaces Spring YAML configuration loader
+PyYAML==6.0.3
+
+# Environment variable loading from .env files — replaces Spring @Value injection
+python-dotenv==1.1.0
+
+# Input sanitization library — replaces OWASP Java Encoder Encode.forJava()
+# Used for CWE-117 log injection prevention across all services
+bleach==6.2.0
+
+# GCP Secret Manager client for credential resolution — replaces hardcoded tokens
+# NOTE: Pinned to 2.26.0 (not AAP-specified 2.23.0) because 2.23.0 requires
+# protobuf<6.0.0dev which conflicts with grpcio-tools 1.78.0 requiring
+# protobuf>=6.31.1. Version 2.26.0 resolves this with backward-compatible API.
+google-cloud-secret-manager==2.26.0
+
+# Protocol Buffer serialization library — required by grpcio for message
+# serialization; pinned explicitly for version consistency across the stack
+protobuf==6.33.5
