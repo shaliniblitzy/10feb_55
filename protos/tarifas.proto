@@ -1,0 +1,346 @@
+// Protocol Buffer definitions for Module 6 (tarifas) gRPC services.
+//
+// Module 6 is an INTERNAL-ONLY module that provides tariff calculation and
+// rate management services for the GAE-GNP Facultativo reinsurance platform.
+// It receives requests exclusively via gRPC — no external HTTP endpoints are
+// exposed through the Apigee API Gateway.
+//
+// Primary consumer: Module 3 (procesos/PolizaService) calls TarifasService
+// during policy evaluation to calculate premiums and retrieve applicable tariffs.
+//
+// Service capabilities:
+//   - Tariff calculation based on insurance type, branch, and insured sum
+//   - Premium calculation using a specific tariff and adjustment factors
+//   - Full CRUD operations for tariff records (create, read, update, delete)
+//   - Filtered queries by insurance type with active-only filtering
+//   - Paginated listing of all tariffs
+//
+// Package: facultativo.tarifas
+// Depends on: common.proto (facultativo.common)
+
+syntax = "proto3";
+
+package facultativo.tarifas;
+
+// gRPC plugin generates proper service stubs via --grpc_python_out.
+
+// Import shared message types from the common proto definitions.
+// Provides: Timestamp, StatusResponse, PaginationRequest, PaginationResponse.
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// TarifasService — gRPC service for tariff calculation and rate management.
+//
+// This is an internal-only service accessed exclusively via gRPC by other
+// modules within the platform. Module 3 (procesos/PolizaService) is the
+// primary consumer, invoking CalculateTarifa and CalculatePremium RPCs
+// during policy evaluation workflows.
+//
+// RPC methods:
+//   CalculateTarifa       — Calculate the applicable tariff for given parameters
+//   GetTarifas            — List all tariffs with pagination
+//   GetTarifaById         — Retrieve a single tariff by its identifier
+//   CreateTarifa          — Create a new tariff record
+//   UpdateTarifa          — Update an existing tariff record
+//   DeleteTarifa          — Soft-delete a tariff record
+//   GetTarifasByTipoSeguro — Query tariffs filtered by insurance type
+//   CalculatePremium      — Calculate premium using a specific tariff
+// ---------------------------------------------------------------------------
+service TarifasService {
+  // Calculate the applicable tariff for the given insurance type, branch,
+  // insured sum, and optional adjustment factors. Returns the applied rate,
+  // calculated premium, and a reference to the tariff record used.
+  rpc CalculateTarifa(CalculateTarifaRequest) returns (CalculateTarifaResponse);
+
+  // Retrieve a paginated list of all tariff records. Supports sorting via
+  // the PaginationRequest parameters.
+  rpc GetTarifas(GetTarifasRequest) returns (GetTarifasResponse);
+
+  // Retrieve a single tariff record by its unique identifier.
+  rpc GetTarifaById(GetTarifaByIdRequest) returns (TarifaResponse);
+
+  // Create a new tariff record with the specified rate parameters and
+  // validity period. Returns the created tariff with generated identifiers.
+  rpc CreateTarifa(CreateTarifaRequest) returns (TarifaResponse);
+
+  // Update an existing tariff record. Only mutable fields (rates, status,
+  // description, validity dates) can be modified.
+  rpc UpdateTarifa(UpdateTarifaRequest) returns (TarifaResponse);
+
+  // Soft-delete a tariff record by marking it inactive. Returns a status
+  // indicating the outcome of the operation.
+  rpc DeleteTarifa(DeleteTarifaRequest) returns (DeleteTarifaResponse);
+
+  // Retrieve tariffs filtered by insurance type (tipo_seguro), with an
+  // optional flag to return only active tariffs. Supports pagination.
+  rpc GetTarifasByTipoSeguro(GetTarifasByTipoSeguroRequest) returns (GetTarifasResponse);
+
+  // Calculate the premium amount using a specific tariff identified by ID,
+  // the insured sum, and optional adjustment factors. Called by Module 3
+  // (procesos/PolizaService) during policy premium determination.
+  rpc CalculatePremium(CalculatePremiumRequest) returns (CalculatePremiumResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Tarifa — Core entity representing a tariff (rate) record.
+//
+// Captures the rate code, insurance classification, base and adjusted rates,
+// allowable rate bounds, currency, validity period, and audit timestamps.
+// Used as the primary data transfer object across all TarifasService RPCs.
+// ---------------------------------------------------------------------------
+message Tarifa {
+  // Unique identifier for the tariff record.
+  string id = 1;
+
+  // Rate code identifying this tariff within the system (e.g., "TAR-2024-001").
+  string codigo = 2;
+
+  // Insurance type classification (e.g., "vida", "danos", "autos").
+  string tipo_seguro = 3;
+
+  // Insurance branch or line of business (e.g., "incendio", "responsabilidad_civil").
+  string ramo = 4;
+
+  // Base rate percentage before any adjustments are applied.
+  double tasa_base = 5;
+
+  // Multiplicative adjustment factor applied to the base rate.
+  double factor_ajuste = 6;
+
+  // Minimum allowable rate — the applied rate cannot fall below this threshold.
+  double tasa_minima = 7;
+
+  // Maximum allowable rate — the applied rate cannot exceed this threshold.
+  double tasa_maxima = 8;
+
+  // Currency code for monetary calculations (e.g., "MXN", "USD").
+  string moneda = 9;
+
+  // Whether this tariff is currently active and available for calculations.
+  bool activo = 10;
+
+  // Human-readable description of the tariff and its applicability.
+  string descripcion = 11;
+
+  // Start of the tariff's validity period — the tariff is applicable from this date.
+  facultativo.common.Timestamp vigencia_inicio = 12;
+
+  // End of the tariff's validity period — the tariff expires after this date.
+  facultativo.common.Timestamp vigencia_fin = 13;
+
+  // Timestamp of when the tariff record was created.
+  facultativo.common.Timestamp created_at = 14;
+
+  // Timestamp of the most recent update to the tariff record.
+  facultativo.common.Timestamp updated_at = 15;
+}
+
+// ---------------------------------------------------------------------------
+// Tariff Calculation Messages
+// ---------------------------------------------------------------------------
+
+// Request to calculate the applicable tariff for given insurance parameters.
+// Used by Module 3 (procesos/PolizaService) during policy evaluation to
+// determine the rate and premium for a prospective or existing policy.
+message CalculateTarifaRequest {
+  // Insurance type classification to match against tariff records.
+  string tipo_seguro = 1;
+
+  // Insurance branch or line of business for tariff lookup.
+  string ramo = 2;
+
+  // Total insured sum (suma asegurada) for premium calculation.
+  double suma_asegurada = 3;
+
+  // Currency code for the calculation (e.g., "MXN", "USD").
+  string moneda = 4;
+
+  // Additional calculation factors as key-value pairs (e.g., risk modifiers,
+  // geographic adjustments, deductible factors). Keys are factor names and
+  // values are their corresponding string-encoded numeric values.
+  map<string, string> factores = 5;
+}
+
+// Response containing the result of a tariff calculation.
+message CalculateTarifaResponse {
+  // The final rate applied after base rate and adjustment factor computation,
+  // clamped within tasa_minima and tasa_maxima bounds.
+  double tasa_aplicada = 1;
+
+  // The calculated premium amount (suma_asegurada * tasa_aplicada / 100).
+  double prima_calculada = 2;
+
+  // The adjustment factor that was applied during calculation.
+  double factor_ajuste = 3;
+
+  // Reference identifier of the tariff record used for the calculation.
+  string tarifa_id = 4;
+
+  // Detailed breakdown of the calculation steps and intermediate values.
+  string detalle_calculo = 5;
+
+  // Operation status indicating success or failure with error details.
+  facultativo.common.StatusResponse status = 6;
+}
+
+// Request to calculate the premium using a specific tariff record.
+// Allows direct premium computation when the tariff is already known,
+// bypassing the tipo_seguro/ramo lookup performed by CalculateTarifa.
+message CalculatePremiumRequest {
+  // Identifier of the specific tariff record to use for premium calculation.
+  string tarifa_id = 1;
+
+  // Total insured sum (suma asegurada) for premium computation.
+  double suma_asegurada = 2;
+
+  // Additional calculation factors as key-value pairs for rate adjustments.
+  map<string, string> factores = 3;
+}
+
+// Response containing the result of a direct premium calculation.
+message CalculatePremiumResponse {
+  // The calculated premium amount.
+  double prima = 1;
+
+  // The rate that was applied in the premium computation.
+  double tasa = 2;
+
+  // Detailed breakdown of the premium calculation.
+  string detalle = 3;
+
+  // Operation status indicating success or failure with error details.
+  facultativo.common.StatusResponse status = 4;
+}
+
+// ---------------------------------------------------------------------------
+// CRUD and Query Messages
+// ---------------------------------------------------------------------------
+
+// Request to retrieve a paginated list of all tariff records.
+message GetTarifasRequest {
+  // Pagination parameters (page number, page size, sorting).
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response containing a paginated list of tariff records.
+message GetTarifasResponse {
+  // List of tariff records for the current page.
+  repeated Tarifa tarifas = 1;
+
+  // Pagination metadata (total count, current page, total pages).
+  facultativo.common.PaginationResponse pagination = 2;
+
+  // Operation status indicating success or failure with error details.
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to retrieve a single tariff record by its unique identifier.
+message GetTarifaByIdRequest {
+  // Unique identifier of the tariff to retrieve.
+  string tarifa_id = 1;
+}
+
+// Response containing a single tariff record.
+// Used as the return type for GetTarifaById, CreateTarifa, and UpdateTarifa RPCs.
+message TarifaResponse {
+  // The tariff record, or empty if not found.
+  Tarifa tarifa = 1;
+
+  // Operation status indicating success or failure with error details.
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to create a new tariff record with the specified parameters.
+// The id, activo (defaults to true), created_at, and updated_at fields
+// are set automatically by the server.
+message CreateTarifaRequest {
+  // Rate code identifying this tariff (e.g., "TAR-2024-001").
+  string codigo = 1;
+
+  // Insurance type classification (e.g., "vida", "danos").
+  string tipo_seguro = 2;
+
+  // Insurance branch or line of business.
+  string ramo = 3;
+
+  // Base rate percentage before adjustments.
+  double tasa_base = 4;
+
+  // Multiplicative adjustment factor for the base rate.
+  double factor_ajuste = 5;
+
+  // Minimum allowable rate threshold.
+  double tasa_minima = 6;
+
+  // Maximum allowable rate threshold.
+  double tasa_maxima = 7;
+
+  // Currency code for monetary calculations (e.g., "MXN", "USD").
+  string moneda = 8;
+
+  // Human-readable description of the tariff.
+  string descripcion = 9;
+
+  // Start of the tariff's validity period.
+  facultativo.common.Timestamp vigencia_inicio = 10;
+
+  // End of the tariff's validity period.
+  facultativo.common.Timestamp vigencia_fin = 11;
+}
+
+// Request to update mutable fields of an existing tariff record.
+// Only the fields present in this message can be modified; immutable fields
+// (id, codigo, tipo_seguro, ramo, moneda, created_at) are excluded.
+message UpdateTarifaRequest {
+  // Identifier of the tariff record to update.
+  string tarifa_id = 1;
+
+  // Updated base rate percentage.
+  double tasa_base = 2;
+
+  // Updated adjustment factor.
+  double factor_ajuste = 3;
+
+  // Updated minimum allowable rate.
+  double tasa_minima = 4;
+
+  // Updated maximum allowable rate.
+  double tasa_maxima = 5;
+
+  // Updated active status (set to false to deactivate).
+  bool activo = 6;
+
+  // Updated description.
+  string descripcion = 7;
+
+  // Updated validity start date.
+  facultativo.common.Timestamp vigencia_inicio = 8;
+
+  // Updated validity end date.
+  facultativo.common.Timestamp vigencia_fin = 9;
+}
+
+// Request to soft-delete a tariff record by its identifier.
+message DeleteTarifaRequest {
+  // Identifier of the tariff record to delete.
+  string tarifa_id = 1;
+}
+
+// Response indicating the result of a tariff deletion operation.
+message DeleteTarifaResponse {
+  // Operation status indicating success or failure with error details.
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request to retrieve tariffs filtered by insurance type, with optional
+// active-only filtering and pagination support.
+message GetTarifasByTipoSeguroRequest {
+  // Insurance type classification to filter by (e.g., "vida", "danos").
+  string tipo_seguro = 1;
+
+  // When true, return only active tariffs (activo == true).
+  bool activo_only = 2;
+
+  // Pagination parameters (page number, page size, sorting).
+  facultativo.common.PaginationRequest pagination = 3;
+}
