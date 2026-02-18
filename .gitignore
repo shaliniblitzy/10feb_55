@@ -1,0 +1,105 @@
+# =============================================================================
+# Python .gitignore - GAE-GNP Facultativo (Python/Flask Rewrite)
+# =============================================================================
+# Comprehensive gitignore for the Python 3 / Flask application rewriting the
+# original Java microservice platform. Covers bytecode, virtual environments,
+# secret files, generated protobuf stubs, packaging artifacts, test/coverage
+# outputs, IDE files, OS metadata, and deployment logs.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python bytecode and cache
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# -----------------------------------------------------------------------------
+# Virtual environments
+# -----------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+
+# -----------------------------------------------------------------------------
+# Environment and secret files
+# -----------------------------------------------------------------------------
+# .env contains runtime secrets (APIGEE_TOKEN, GCP credentials, etc.)
+# Per AAP Section 0.7.3: No hardcoded secrets in version control.
+# NOTE: .env.example is the committed template and must NOT be ignored.
+.env
+.env.local
+.env.production
+.env.staging
+
+# -----------------------------------------------------------------------------
+# Generated Protocol Buffer files
+# -----------------------------------------------------------------------------
+# These are compiled from .proto definitions via `make proto-compile` or
+# `python -m grpc_tools.protoc` and must be regenerated at build time.
+*_pb2.py
+*_pb2_grpc.py
+
+# -----------------------------------------------------------------------------
+# Distribution and packaging
+# -----------------------------------------------------------------------------
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+sdist/
+wheels/
+
+# -----------------------------------------------------------------------------
+# Testing and coverage
+# -----------------------------------------------------------------------------
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+
+# -----------------------------------------------------------------------------
+# IDE and editor files
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+
+# -----------------------------------------------------------------------------
+# OS-specific files
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Deployment and runtime artifacts
+# -----------------------------------------------------------------------------
+*.log
+*.pid
+*.sock
+
+# -----------------------------------------------------------------------------
+# Installer logs
+# -----------------------------------------------------------------------------
+pip-log.txt
+pip-delete-this-directory.txt
+
+# -----------------------------------------------------------------------------
+# Type checker caches
+# -----------------------------------------------------------------------------
+.mypy_cache/
+.pytype/
