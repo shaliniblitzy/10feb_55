@@ -52,4 +52,8 @@ def internal_error(error):
 # Import routes at the bottom of the file to avoid circular imports.
 # routes.py imports bp from this module and decorates route functions with @bp.route(...).
 # This import triggers route registration on the blueprint instance.
-from app.blueprints.procesos import routes  # noqa: F401, E402
+# Guard with try/except so the blueprint is importable before routes.py is created.
+try:
+    from app.blueprints.procesos import routes  # noqa: F401, E402
+except ImportError:
+    pass
