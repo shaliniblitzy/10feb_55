@@ -1,0 +1,229 @@
+// Protocol Buffer definition for Module 2 (catalogos) gRPC services.
+//
+// Defines the gRPC service interface for reinsurer catalog management via
+// ReaseguradoraService. Module 2 is an INTERNAL-ONLY module — it receives
+// requests exclusively via gRPC from other modules (no external HTTP endpoints
+// through the Apigee API Gateway).
+//
+// Primary consumer: Module 3 (procesos/OfertaService) calls CatalogosService
+// for reinsurer catalog lookups during offer processing.
+//
+// Replaces the Java ReaseguradoraService from the original
+// mx.com.gnp.rvi.facultativo.services package. The unified grpcio 1.78.0
+// stack replaces the gRPC-Netty Shaded transport from the original Java system.
+//
+// Compilation:
+//   python -m grpc_tools.protoc -I./protos \
+//     --python_out=./protos --grpc_python_out=./protos \
+//     protos/catalogos.proto
+//
+// Generated files (gitignored):
+//   protos/catalogos_pb2.py       — Message serialization classes
+//   protos/catalogos_pb2_grpc.py  — gRPC service stubs (client and server)
+//
+// Import pattern:
+//   from protos import catalogos_pb2, catalogos_pb2_grpc
+
+syntax = "proto3";
+
+package facultativo.catalogos;
+
+// Disable Python generic services — grpcio uses its own codegen via grpc_python_out
+option py_generic_services = false;
+
+// Import shared message types from the common proto definitions
+import "common.proto";
+
+// ---------------------------------------------------------------------------
+// CatalogosService — Reinsurer Catalog Management
+// ---------------------------------------------------------------------------
+// Primary gRPC service for Module 2. Provides full CRUD operations and search
+// capabilities for reinsurer (reaseguradora) catalog entries. This service is
+// accessed exclusively via internal gRPC calls from other modules.
+//
+// RPC Methods (replicating Java ReaseguradoraService):
+//   - GetReaseguradoras:     List all reinsurers with pagination
+//   - GetReaseguradoraById:  Retrieve a single reinsurer by ID
+//   - CreateReaseguradora:   Create a new reinsurer entry
+//   - UpdateReaseguradora:   Update an existing reinsurer entry
+//   - DeleteReaseguradora:   Delete a reinsurer entry
+//   - SearchReaseguradoras:  Search reinsurers with filters and pagination
+service CatalogosService {
+
+  // Retrieve a paginated list of all reinsurers in the catalog.
+  // Called by Module 3 (procesos) during bulk offer evaluation workflows.
+  rpc GetReaseguradoras(GetReaseguradorasRequest) returns (GetReaseguradorasResponse);
+
+  // Retrieve a single reinsurer by its unique identifier.
+  // Called by Module 3 (procesos/OfertaService) for catalog lookups during
+  // offer processing to validate reinsurer references.
+  rpc GetReaseguradoraById(GetReaseguradoraByIdRequest) returns (ReaseguradoraResponse);
+
+  // Create a new reinsurer entry in the catalog.
+  // Returns the created reinsurer with generated ID and audit timestamps.
+  rpc CreateReaseguradora(CreateReaseguradoraRequest) returns (ReaseguradoraResponse);
+
+  // Update an existing reinsurer entry.
+  // All mutable fields can be updated including active status.
+  rpc UpdateReaseguradora(UpdateReaseguradoraRequest) returns (ReaseguradoraResponse);
+
+  // Delete a reinsurer entry from the catalog.
+  // Returns status indicating success or failure of the deletion.
+  rpc DeleteReaseguradora(DeleteReaseguradoraRequest) returns (DeleteReaseguradoraResponse);
+
+  // Search reinsurers with query string and optional filters (type, country,
+  // active status) with pagination support. Used for filtered catalog lookups.
+  rpc SearchReaseguradoras(SearchReaseguradorasRequest) returns (GetReaseguradorasResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Entity Message — Reaseguradora (Reinsurer)
+// ---------------------------------------------------------------------------
+// Represents a reinsurer entity in the catalog. Captures all domain attributes
+// for a reinsurer including identification, classification, geographic origin,
+// and audit metadata. Mirrors the Java Reaseguradora domain object.
+message Reaseguradora {
+  // Unique identifier for the reinsurer entry
+  string id = 1;
+
+  // Full name of the reinsurer company
+  string nombre = 2;
+
+  // Short alphanumeric code identifying the reinsurer
+  string codigo = 3;
+
+  // Detailed description of the reinsurer
+  string descripcion = 4;
+
+  // Whether the reinsurer is currently active in the catalog
+  bool activo = 5;
+
+  // Country of origin or primary operation (ISO country code or name)
+  string pais = 6;
+
+  // Classification type of the reinsurer (e.g., "profesional", "cautiva")
+  string tipo = 7;
+
+  // Timestamp when the reinsurer entry was created
+  facultativo.common.Timestamp created_at = 8;
+
+  // Timestamp when the reinsurer entry was last updated
+  facultativo.common.Timestamp updated_at = 9;
+}
+
+// ---------------------------------------------------------------------------
+// Request and Response Messages
+// ---------------------------------------------------------------------------
+
+// Request to retrieve a paginated list of all reinsurers.
+// Pagination controls page number, page size, and sort order.
+message GetReaseguradorasRequest {
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response containing a paginated list of reinsurers.
+// Includes the reinsurer data, pagination metadata, and operation status.
+message GetReaseguradorasResponse {
+  // List of reinsurer entities for the current page
+  repeated Reaseguradora reaseguradoras = 1;
+
+  // Pagination metadata (total count, current page, total pages, etc.)
+  facultativo.common.PaginationResponse pagination = 2;
+
+  // Operation status with success flag, message, and request tracking
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request to retrieve a single reinsurer by its unique identifier.
+message GetReaseguradoraByIdRequest {
+  // Unique identifier of the reinsurer to retrieve
+  string reaseguradora_id = 1;
+}
+
+// Response containing a single reinsurer entity and operation status.
+// Used for single-entity retrieval, creation, and update responses.
+message ReaseguradoraResponse {
+  // The reinsurer entity (null/empty if not found)
+  Reaseguradora reaseguradora = 1;
+
+  // Operation status with success flag, message, and request tracking
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request to create a new reinsurer entry in the catalog.
+// Does not include id, activo, created_at, or updated_at as these are
+// server-generated upon creation.
+message CreateReaseguradoraRequest {
+  // Full name of the reinsurer company
+  string nombre = 1;
+
+  // Short alphanumeric code for the reinsurer
+  string codigo = 2;
+
+  // Detailed description of the reinsurer
+  string descripcion = 3;
+
+  // Country of origin or primary operation
+  string pais = 4;
+
+  // Classification type of the reinsurer
+  string tipo = 5;
+}
+
+// Request to update an existing reinsurer entry.
+// Includes all mutable fields. The reaseguradora_id identifies the target.
+message UpdateReaseguradoraRequest {
+  // Unique identifier of the reinsurer to update
+  string reaseguradora_id = 1;
+
+  // Updated name of the reinsurer
+  string nombre = 2;
+
+  // Updated code for the reinsurer
+  string codigo = 3;
+
+  // Updated description
+  string descripcion = 4;
+
+  // Updated active status (can activate or deactivate)
+  bool activo = 5;
+
+  // Updated country of origin
+  string pais = 6;
+
+  // Updated classification type
+  string tipo = 7;
+}
+
+// Request to delete a reinsurer entry from the catalog.
+message DeleteReaseguradoraRequest {
+  // Unique identifier of the reinsurer to delete
+  string reaseguradora_id = 1;
+}
+
+// Response for delete operations.
+// Contains only the operation status indicating success or failure.
+message DeleteReaseguradoraResponse {
+  // Operation status with success flag, message, and request tracking
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request to search reinsurers with query string and optional filters.
+// Supports filtering by type, country, and active-only status, combined
+// with a free-text query and pagination.
+message SearchReaseguradorasRequest {
+  // Free-text search query matched against nombre, codigo, and descripcion
+  string query = 1;
+
+  // Optional filter by reinsurer type (exact match)
+  string tipo = 2;
+
+  // Optional filter by country (exact match)
+  string pais = 3;
+
+  // When true, return only active reinsurers
+  bool activo_only = 4;
+
+  // Pagination controls for the search results
+  facultativo.common.PaginationRequest pagination = 5;
+}

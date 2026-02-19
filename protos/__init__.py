@@ -37,3 +37,28 @@ Architecture Note:
     (Module 4) from the original Java system, eliminating the Module 4
     architectural divergence.
 """
+
+import os
+import sys
+
+# ---------------------------------------------------------------------------
+# Runtime path fix for protoc-generated flat imports
+# ---------------------------------------------------------------------------
+# When protoc compiles .proto files with `-I./protos`, it produces Python
+# modules that use flat (non-package-qualified) imports, e.g.:
+#
+#     import common_pb2 as common__pb2          (inside catalogos_pb2.py)
+#
+# At runtime, `from protos import catalogos_pb2` triggers execution of this
+# __init__.py first, then loads catalogos_pb2.py which tries the flat import
+# above.  Python will fail with `ModuleNotFoundError: No module named
+# 'common_pb2'` because `common_pb2.py` lives inside `protos/`, not at the
+# project root.
+#
+# The fix: add the directory containing the generated *_pb2.py files (i.e.
+# this package's own directory) to sys.path so that flat imports resolve
+# correctly.  The entry is inserted only once to keep sys.path clean.
+# ---------------------------------------------------------------------------
+_PROTOS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _PROTOS_DIR not in sys.path:
+    sys.path.insert(0, _PROTOS_DIR)
