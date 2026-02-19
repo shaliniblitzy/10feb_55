@@ -1,17 +1,9 @@
 """
-Flask Blueprint package for Module 4 (reportes) — Internal Only.
+Flask Blueprint for Module 4 (reportes) — User Files and Report Management.
 
-Module 4 (reportes) is an INTERNAL-ONLY module that provides user file
-and report management services via the ArchivosUsuarioService. It is
-accessed exclusively via gRPC by other modules:
-
-- Module 1 (administrador/UsuarioService) for report generation requests
-- Module 5 (sincronizador_archivos) for file sync coordination
-
-This module does NOT expose any external HTTP endpoints through the
-Apigee API Gateway. The only HTTP routes registered here are internal
-health check and admin status endpoints used for monitoring and
-diagnostics.
+INTERNAL-ONLY MODULE — Accessed exclusively via gRPC for inter-service
+communication. Does NOT expose external HTTP endpoints via the Apigee
+API Gateway. Provides health check routes for internal monitoring.
 
 Original Java Module:
     Package: mx.com.gnp.rvi.facultativo.service (SINGULAR — unique among
@@ -21,18 +13,27 @@ Original Java Module:
     Transport: Originally used Direct Netty (divergence from other modules)
                — ELIMINATED in Python rewrite, now uses unified grpcio
 
-External report/file requests arrive via:
-    gRPC -> ReportesServicer (app.grpc_server.servicers) ->
-    ArchivosUsuarioService (app.blueprints.reportes.services)
+Flask Blueprint:
+    Name: 'reportes'
+    URL Prefix: /api/reportes (set during registration in app/__init__.py)
+    Routes: Health check and status only (no external-facing API endpoints)
 
-Inter-module communication:
-    - Called by: Module 1 (administrador) UsuarioService for report generation
-    - Called by: Module 5 (sincronizador_archivos) for file sync coordination
-    - Protocol: gRPC (grpcio)
-    - No Apigee authentication required (internal-only)
+Services:
+    ArchivosUsuarioService — User file retrieval, report generation,
+                              file metadata, and file sync coordination
 
-Blueprint URL prefix '/api/reportes' is applied during registration
-in the application factory (app/__init__.py), not here.
+Inter-Module Communication:
+    Called by Module 1 (administrador/UsuarioService) for report generation
+    Called by Module 5 (sincronizador_archivos) for file sync coordination
+    Both via gRPC through ReportesServicer in app/grpc_server/servicers.py
+
+Usage:
+    # In app/__init__.py:
+    from app.blueprints.reportes import bp as reportes_bp
+    app.register_blueprint(reportes_bp, url_prefix='/api/reportes')
+
+    # In app/grpc_server/servicers.py (ReportesServicer):
+    from app.blueprints.reportes.services import ArchivosUsuarioService
 """
 
 from flask import Blueprint
