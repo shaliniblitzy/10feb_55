@@ -1,28 +1,34 @@
 """
-Flask Blueprint package for Module 6 (tarifas) — Internal Only.
+Flask Blueprint for Module 6 (tarifas) — Tariff Calculation and Rate Management.
 
-Module 6 (tarifas) is an INTERNAL-ONLY module that provides tariff
-calculation and rate management services for the GAE-GNP Facultativo
-platform. It is accessed exclusively via gRPC by other modules —
-primarily Module 3 (procesos/PolizaService) for tariff calculation
-during policy evaluation.
+INTERNAL-ONLY MODULE — Accessed exclusively via gRPC for inter-service
+communication. Does NOT expose external HTTP endpoints via the Apigee
+API Gateway. Provides health check routes for internal monitoring.
 
-This module does NOT expose any external HTTP endpoints through the
-Apigee API Gateway. The only HTTP routes registered here are internal
-health check and admin status endpoints used for monitoring and
-diagnostics.
+Original Java Module:
+    Package: mx.com.gnp.rvi.facultativo.services (plural)
+    Module: tarifas (Module 6)
+    Access: Internal gRPC only
 
-External tariff calculation requests arrive via:
-    gRPC -> TarifasServicer (app.grpc_server.servicers) ->
-    TarifaService (app.blueprints.tarifas.services)
+Flask Blueprint:
+    Name: 'tarifas'
+    URL Prefix: /api/tarifas (set during registration in app/__init__.py)
+    Routes: Health check and status only (no external-facing API endpoints)
 
-Inter-module communication:
-    - Called by: Module 3 (procesos) PolizaService for tariff lookups
-    - Protocol: gRPC (grpcio)
-    - No Apigee authentication required (internal-only)
+Services:
+    TarifaService — Tariff calculation and rate management
 
-Blueprint URL prefix '/api/tarifas' is applied during registration
-in the application factory (app/__init__.py), not here.
+Inter-Module Communication:
+    Called by Module 3 (procesos/PolizaService) for tariff calculation
+    during policy evaluation, via gRPC through TarifasServicer.
+
+Usage:
+    # In app/__init__.py:
+    from app.blueprints.tarifas import bp as tarifas_bp
+    app.register_blueprint(tarifas_bp, url_prefix='/api/tarifas')
+
+    # In app/grpc_server/servicers.py (TarifasServicer):
+    from app.blueprints.tarifas.services import TarifaService
 """
 
 from flask import Blueprint
