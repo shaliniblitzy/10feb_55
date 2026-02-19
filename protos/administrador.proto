@@ -1,0 +1,421 @@
+// Protocol Buffer definition for Module 1 (administrador) gRPC services.
+//
+// Defines the gRPC service interfaces for user authentication (LoginService),
+// role management (RolService), and user administration (UsuarioService) —
+// the three key services of Module 1 in the GAE-GNP Facultativo platform.
+//
+// This file is compiled at build time using grpcio-tools 1.78.0 via:
+//   python -m grpc_tools.protoc -I./protos --python_out=./protos \
+//       --grpc_python_out=./protos protos/administrador.proto
+//
+// Generated stubs (administrador_pb2.py, administrador_pb2_grpc.py) are used by:
+//   - app/grpc_server/servicers.py (AdministradorServicer implementation)
+//   - app/grpc_server/clients.py   (get_administrador_stub client factory)
+//   - app/grpc_server/server.py    (add_AdministradorServiceServicer_to_server)
+//
+// Module 1 is EXTERNAL-facing (HTTP via Apigee) and also called internally
+// via gRPC by other modules. Module 1 calls Module 4 (reportes) for report
+// generation via a separate gRPC client.
+
+syntax = "proto3";
+
+package facultativo.administrador;
+
+// Java interop options (maintained for cross-platform compatibility reference)
+option java_multiple_files = true;
+option java_package = "mx.com.gnp.rvi.facultativo.administrador";
+
+// Python gRPC uses its own codegen via grpcio-tools, not generic services
+option py_generic_services = false;
+
+// Import shared message types from common.proto:
+//   - StatusResponse: Used in all RPC response status indicators
+//   - Timestamp: Used for audit timestamps (created_at, updated_at)
+//   - PaginationRequest: Used for paginated GetRoles and GetUsers requests
+//   - PaginationResponse: Used for paginated GetRoles and GetUsers response metadata
+import "common.proto";
+
+// =============================================================================
+// AdministradorService — Primary gRPC service for Module 1
+// =============================================================================
+//
+// Consolidates all three sub-services from the original Java implementation:
+//   1. LoginService  — User authentication (Login, Logout, RefreshToken, ValidateToken)
+//   2. RolService    — Role management (CRUD operations on roles)
+//   3. UsuarioService — User administration (CRUD operations on users, role assignment)
+//
+// This service receives INCOMING gRPC calls from other modules within the
+// GAE-GNP Facultativo platform. External HTTP access is handled separately
+// by the Flask blueprint (app/blueprints/administrador/routes.py).
+service AdministradorService {
+
+  // -------------------------------------------------------------------------
+  // LoginService RPCs — User Authentication
+  // -------------------------------------------------------------------------
+  // Replicate the Java LoginService from mx.com.gnp.rvi.facultativo.services
+
+  // Authenticate a user with username and password credentials.
+  // Returns an access token, refresh token, and user information on success.
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Invalidate the current session token, ending the user's session.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // Exchange a valid refresh token for a new access token and refresh token pair.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // Validate an existing access token and return associated user information.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // -------------------------------------------------------------------------
+  // RolService RPCs — Role Management
+  // -------------------------------------------------------------------------
+  // Replicate the Java RolService from mx.com.gnp.rvi.facultativo.services
+
+  // Retrieve a paginated list of all roles in the system.
+  rpc GetRoles(GetRolesRequest) returns (GetRolesResponse);
+
+  // Retrieve a single role by its unique identifier.
+  rpc GetRoleById(GetRoleByIdRequest) returns (RoleResponse);
+
+  // Create a new role with the specified name, description, and permissions.
+  rpc CreateRole(CreateRoleRequest) returns (RoleResponse);
+
+  // Update an existing role's name, description, and/or permissions.
+  rpc UpdateRole(UpdateRoleRequest) returns (RoleResponse);
+
+  // Delete a role by its unique identifier.
+  rpc DeleteRole(DeleteRoleRequest) returns (DeleteRoleResponse);
+
+  // -------------------------------------------------------------------------
+  // UsuarioService RPCs — User Administration
+  // -------------------------------------------------------------------------
+  // Replicate the Java UsuarioService from mx.com.gnp.rvi.facultativo.services
+
+  // Retrieve a paginated list of all users in the system.
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+
+  // Retrieve a single user by their unique identifier.
+  rpc GetUserById(GetUserByIdRequest) returns (UserResponse);
+
+  // Create a new user with credentials, profile information, and initial roles.
+  rpc CreateUser(CreateUserRequest) returns (UserResponse);
+
+  // Update an existing user's profile information and active status.
+  rpc UpdateUser(UpdateUserRequest) returns (UserResponse);
+
+  // Delete a user by their unique identifier.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+
+  // Retrieve all roles assigned to a specific user.
+  rpc GetUserRoles(GetUserRolesRequest) returns (GetUserRolesResponse);
+
+  // Assign a role to a user, granting them the role's permissions.
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+}
+
+// =============================================================================
+// Login Messages — User Authentication Request/Response Types
+// =============================================================================
+
+// Request message for the Login RPC.
+// Contains user credentials for authentication.
+message LoginRequest {
+  // The username credential for authentication.
+  string username = 1;
+  // The password credential for authentication (transmitted securely via gRPC TLS).
+  string password = 2;
+}
+
+// Response message for the Login RPC.
+// Returns authentication tokens and user profile on successful login.
+message LoginResponse {
+  // JWT access token for subsequent authenticated requests.
+  string token = 1;
+  // Refresh token for obtaining new access tokens without re-authentication.
+  string refresh_token = 2;
+  // Profile information of the authenticated user.
+  UserInfo user_info = 3;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 4;
+}
+
+// Request message for the Logout RPC.
+// Contains the token to invalidate.
+message LogoutRequest {
+  // The access token to invalidate, ending the associated session.
+  string token = 1;
+}
+
+// Response message for the Logout RPC.
+// Confirms the session has been terminated.
+message LogoutResponse {
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request message for the RefreshToken RPC.
+// Contains the refresh token to exchange for a new token pair.
+message RefreshTokenRequest {
+  // The refresh token to exchange for new access and refresh tokens.
+  string refresh_token = 1;
+}
+
+// Response message for the RefreshToken RPC.
+// Returns a new access token and refresh token pair.
+message RefreshTokenResponse {
+  // New JWT access token.
+  string token = 1;
+  // New refresh token (rotation for security).
+  string refresh_token = 2;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request message for the ValidateToken RPC.
+// Contains the access token to validate.
+message ValidateTokenRequest {
+  // The access token to validate for authenticity and expiration.
+  string token = 1;
+}
+
+// Response message for the ValidateToken RPC.
+// Returns token validity status and associated user information.
+message ValidateTokenResponse {
+  // Whether the token is valid (not expired, not revoked, properly signed).
+  bool valid = 1;
+  // Profile information of the user associated with the token (populated if valid).
+  UserInfo user_info = 2;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 3;
+}
+
+// =============================================================================
+// Role Messages — Role Management Request/Response Types
+// =============================================================================
+
+// Represents a role within the RBAC (Role-Based Access Control) system.
+// Roles group permissions and are assigned to users via the UsuarioService RPCs.
+message Role {
+  // Unique identifier for the role.
+  string id = 1;
+  // Human-readable name of the role (e.g., "admin", "auditor", "operator").
+  string name = 2;
+  // Description of the role's purpose and scope.
+  string description = 3;
+  // List of permission strings granted by this role (e.g., "read:policies", "write:offers").
+  repeated string permissions = 4;
+  // Timestamp of when the role was created (audit trail).
+  facultativo.common.Timestamp created_at = 5;
+  // Timestamp of the most recent role update (audit trail).
+  facultativo.common.Timestamp updated_at = 6;
+}
+
+// Request message for the GetRoles RPC.
+// Supports paginated retrieval of the roles list.
+message GetRolesRequest {
+  // Pagination parameters (page number, page size, sort options).
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response message for the GetRoles RPC.
+// Returns a paginated list of roles.
+message GetRolesResponse {
+  // List of roles for the current page.
+  repeated Role roles = 1;
+  // Pagination metadata (total count, current page, total pages, navigation flags).
+  facultativo.common.PaginationResponse pagination = 2;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request message for the GetRoleById RPC.
+// Identifies a specific role to retrieve.
+message GetRoleByIdRequest {
+  // Unique identifier of the role to retrieve.
+  string role_id = 1;
+}
+
+// Response message for GetRoleById, CreateRole, and UpdateRole RPCs.
+// Returns a single role with operation status.
+message RoleResponse {
+  // The requested or modified role.
+  Role role = 1;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request message for the CreateRole RPC.
+// Contains the properties for the new role to create.
+message CreateRoleRequest {
+  // Name for the new role.
+  string name = 1;
+  // Description of the new role's purpose.
+  string description = 2;
+  // Initial permissions to assign to the new role.
+  repeated string permissions = 3;
+}
+
+// Request message for the UpdateRole RPC.
+// Contains the role identifier and updated properties.
+message UpdateRoleRequest {
+  // Unique identifier of the role to update.
+  string role_id = 1;
+  // Updated name for the role.
+  string name = 2;
+  // Updated description for the role.
+  string description = 3;
+  // Updated permissions list for the role.
+  repeated string permissions = 4;
+}
+
+// Request message for the DeleteRole RPC.
+// Identifies the role to delete.
+message DeleteRoleRequest {
+  // Unique identifier of the role to delete.
+  string role_id = 1;
+}
+
+// Response message for the DeleteRole RPC.
+// Confirms the role deletion operation result.
+message DeleteRoleResponse {
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 1;
+}
+
+// =============================================================================
+// User Messages — User Administration Request/Response Types
+// =============================================================================
+
+// Represents a user within the GAE-GNP Facultativo system.
+// Contains profile information, assigned roles, and audit timestamps.
+// Referenced by LoginResponse and ValidateTokenResponse for authenticated user context.
+message UserInfo {
+  // Unique identifier for the user.
+  string id = 1;
+  // Login username (unique across the system).
+  string username = 2;
+  // User's email address.
+  string email = 3;
+  // User's full display name.
+  string full_name = 4;
+  // List of roles currently assigned to the user.
+  repeated Role roles = 5;
+  // Whether the user account is active (inactive accounts cannot authenticate).
+  bool active = 6;
+  // Timestamp of when the user account was created (audit trail).
+  facultativo.common.Timestamp created_at = 7;
+  // Timestamp of the most recent user profile update (audit trail).
+  facultativo.common.Timestamp updated_at = 8;
+}
+
+// Request message for the GetUsers RPC.
+// Supports paginated retrieval of the users list.
+message GetUsersRequest {
+  // Pagination parameters (page number, page size, sort options).
+  facultativo.common.PaginationRequest pagination = 1;
+}
+
+// Response message for the GetUsers RPC.
+// Returns a paginated list of users.
+message GetUsersResponse {
+  // List of users for the current page.
+  repeated UserInfo users = 1;
+  // Pagination metadata (total count, current page, total pages, navigation flags).
+  facultativo.common.PaginationResponse pagination = 2;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 3;
+}
+
+// Request message for the GetUserById RPC.
+// Identifies a specific user to retrieve.
+message GetUserByIdRequest {
+  // Unique identifier of the user to retrieve.
+  string user_id = 1;
+}
+
+// Response message for GetUserById, CreateUser, and UpdateUser RPCs.
+// Returns a single user with operation status.
+message UserResponse {
+  // The requested or modified user.
+  UserInfo user = 1;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request message for the CreateUser RPC.
+// Contains credentials, profile information, and initial role assignments.
+message CreateUserRequest {
+  // Login username for the new user (must be unique).
+  string username = 1;
+  // Initial password for the new user (securely transmitted via gRPC TLS).
+  string password = 2;
+  // Email address for the new user.
+  string email = 3;
+  // Full display name for the new user.
+  string full_name = 4;
+  // List of role IDs to assign to the new user upon creation.
+  repeated string role_ids = 5;
+}
+
+// Request message for the UpdateUser RPC.
+// Contains the user identifier and updated profile fields.
+// Note: Password changes are handled separately for security.
+message UpdateUserRequest {
+  // Unique identifier of the user to update.
+  string user_id = 1;
+  // Updated username (must remain unique).
+  string username = 2;
+  // Updated email address.
+  string email = 3;
+  // Updated full display name.
+  string full_name = 4;
+  // Updated active status (set to false to deactivate the account).
+  bool active = 5;
+}
+
+// Request message for the DeleteUser RPC.
+// Identifies the user to delete.
+message DeleteUserRequest {
+  // Unique identifier of the user to delete.
+  string user_id = 1;
+}
+
+// Response message for the DeleteUser RPC.
+// Confirms the user deletion operation result.
+message DeleteUserResponse {
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 1;
+}
+
+// Request message for the GetUserRoles RPC.
+// Identifies the user whose roles to retrieve.
+message GetUserRolesRequest {
+  // Unique identifier of the user whose roles to list.
+  string user_id = 1;
+}
+
+// Response message for the GetUserRoles RPC.
+// Returns all roles assigned to the specified user.
+message GetUserRolesResponse {
+  // List of roles currently assigned to the user.
+  repeated Role roles = 1;
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 2;
+}
+
+// Request message for the AssignRole RPC.
+// Specifies the user and role to associate.
+message AssignRoleRequest {
+  // Unique identifier of the user to receive the role.
+  string user_id = 1;
+  // Unique identifier of the role to assign.
+  string role_id = 2;
+}
+
+// Response message for the AssignRole RPC.
+// Confirms the role assignment operation result.
+message AssignRoleResponse {
+  // Operation status indicator (success/failure with message and code).
+  facultativo.common.StatusResponse status = 1;
+}
