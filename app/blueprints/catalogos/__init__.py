@@ -1,25 +1,38 @@
 """
-Flask blueprint for Module 2 (catalogos) — Internal-Only Module.
+Flask Blueprint for Module 2 (catalogos) — Reinsurer Catalog Management.
 
-Module 2 (catalogos) is an INTERNAL-ONLY module that provides reinsurer
-catalog management services via the ReaseguradoraService. It is accessed
-exclusively via gRPC by other modules — specifically Module 3
-(procesos/OfertaService) for catalog lookups during offer processing.
+INTERNAL-ONLY MODULE — Accessed exclusively via gRPC for inter-service
+communication. Does NOT expose external HTTP endpoints via the Apigee
+API Gateway. Provides health check routes for internal monitoring.
 
-This module does NOT expose external HTTP endpoints through the Apigee
-API Gateway. Only internal health check and admin routes are provided
-for monitoring purposes.
+Original Java Module:
+    Package: mx.com.gnp.rvi.facultativo.services (PLURAL — standard
+            naming convention; matches Modules 1, 3, 5, 6)
+    Module: catalogos (Module 2)
+    Access: Internal gRPC only
+    Transport: gRPC-Netty Shaded (unified to grpcio in Python rewrite)
+
+Flask Blueprint:
+    Name: 'catalogos'
+    URL Prefix: /api/catalogos (set during registration in app/__init__.py)
+    Routes: Health check and status only (no external-facing API endpoints)
 
 Services:
-    ReaseguradoraService — Reinsurer catalog management
+    ReaseguradoraService — Reinsurer catalog management (retrieval,
+                            listing, searching, creation, updates)
 
-Communication:
-    Protocol: gRPC (internal only)
-    Called by: Module 3 (procesos) — OfertaService for catalog lookups
+Inter-Module Communication:
+    Called by Module 3 (procesos/OfertaService) via gRPC for catalog
+    lookups during offer processing through CatalogosServicer in
+    app/grpc_server/servicers.py
 
-Routes:
-    GET /api/catalogos/health  — Health check for monitoring
-    GET /api/catalogos/status  — Module status and metadata
+Usage:
+    # In app/__init__.py:
+    from app.blueprints.catalogos import bp as catalogos_bp
+    app.register_blueprint(catalogos_bp, url_prefix='/api/catalogos')
+
+    # In app/grpc_server/servicers.py (CatalogosServicer):
+    from app.blueprints.catalogos.services import ReaseguradoraService
 """
 
 from flask import Blueprint
